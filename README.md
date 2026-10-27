@@ -211,6 +211,6 @@ Issues and pull requests are welcome.
 
 ## License
 
-MIT — see [LICENSE.txt](LICENSE.txt).
+MIT — see [LICENSE](LICENSE).
 
 FreePartition is an independent project and is not affiliated with EaseUS.
