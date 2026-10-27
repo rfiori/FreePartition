@@ -1,0 +1,204 @@
+using FreePartition.Core.Operations;
+
+namespace FreePartition.Tests;
+
+public class OperationQueueTests
+{
+    private sealed class FakeExecutor : ICommandExecutor
+    {
+        private readonly Func<string, CommandResult> _response;
+        public List<string> Scripts { get; } = new();
+
+        public FakeExecutor(Func<string, CommandResult>? response = null)
+            => _response = response ?? (_ => new CommandResult(0, "ok", ""));
+
+        public Task<CommandResult> ExecuteAsync(string script, CancellationToken ct)
+        {
+            Scripts.Add(script);
+            return Task.FromResult(_response(script));
+        }
+    }
+
+    private sealed class FakeLog : IOperationLog
+    {
+        public List<string> Lines { get; } = new();
+        public void Log(string message) => Lines.Add(message);
+    }
+
+    // ---------- script generation ----------
+
+    [Fact]
+    public void Resize_GeneratesScriptWithSize()
+    {
+        var op = new ResizePartition('d', 50_000_000_000);
+        Assert.Equal("Resize-Partition -DriveLetter D -Size 50000000000", op.GenerateScript());
+    }
+
+    [Fact]
+    public void Extend_WithoutSize_UsesMaximumSupportedSize()
+    {
+        var script = new ResizePartition('E').GenerateScript();
+        Assert.Contains("Get-PartitionSupportedSize -DriveLetter E", script);
+        Assert.Contains("Resize-Partition -DriveLetter E -Size $max", script);
+    }
+
+    [Fact]
+    public void Format_GeneratesScriptWithFileSystemAndLabel()
+    {
+        var op = new FormatVolume('f', FileSystemFormat.exFAT, "Backup 2026");
+        Assert.Equal("Format-Volume -DriveLetter F -FileSystem exFAT -NewFileSystemLabel 'Backup 2026' -Confirm:$false",
+            op.GenerateScript());
+    }
+
+    [Fact]
+    public void ChangeLetter_GeneratesScript()
+    {
+        Assert.Equal("Set-Partition -DriveLetter G -NewDriveLetter H", new ChangeDriveLetter('g', 'h').GenerateScript());
+    }
+
+    // ---------- validation ----------
+
+    [Theory]
+    [InlineData("x'; Remove-Item C:\\ -Recurse; '")]
+    [InlineData("a$(calc)")]
+    [InlineData("bad;label")]
+    public void Label_WithDangerousCharacters_IsRefused(string label)
+    {
+        Assert.Throws<ArgumentException>(() => new ChangeVolumeLabel('D', label).Validate());
+        Assert.Throws<ArgumentException>(() => new FormatVolume('D', FileSystemFormat.NTFS, label).Validate());
+    }
+
+    [Fact]
+    public void Fat32_LabelLongerThan11Characters_IsRefused()
+    {
+        var op = new FormatVolume('D', FileSystemFormat.FAT32, "VeryLongLabel");
+        Assert.Throws<ArgumentException>(op.Validate);
+    }
+
+    [Fact]
+    public void InvalidLetter_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new ResizePartition('1').Validate());
+        Assert.Throws<ArgumentException>(() => new ChangeDriveLetter('D', 'D').Validate());
+    }
+
+    [Fact]
+    public void Resize_WithSizeBelow1MB_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new ResizePartition('D', 1000).Validate());
+    }
+
+    // ---------- queue ----------
+
+    [Fact]
+    public void FormatSystemDrive_IsRefused()
+    {
+        var queue = new OperationQueue(protectedDrive: 'C');
+
+        Assert.Throws<InvalidOperationException>(
+            () => queue.Add(new FormatVolume('c', FileSystemFormat.NTFS)));
+        Assert.Empty(queue.Pending);
+
+        // Other drives and safe operations on the system drive are still allowed.
+        queue.Add(new FormatVolume('D', FileSystemFormat.NTFS));
+        queue.Add(new ChangeVolumeLabel('C', "System"));
+        Assert.Equal(2, queue.Pending.Count);
+    }
+
+    [Fact]
+    public void AddRemoveAndClear_UpdateTheQueueAndRaiseTheEvent()
+    {
+        var queue = new OperationQueue();
+        int events = 0;
+        queue.Changed += (_, _) => events++;
+
+        var a = new ChangeVolumeLabel('D', "A");
+        var b = new ChangeVolumeLabel('E', "B");
+        queue.Add(a);
+        queue.Add(b);
+        Assert.True(queue.Remove(a));
+        Assert.Single(queue.Pending);
+        queue.Clear();
+        Assert.Empty(queue.Pending);
+        Assert.Equal(4, events);
+    }
+
+    // ---------- apply ----------
+
+    [Fact]
+    public async Task Apply_RunsInOrder_AndRemovesCompletedOnes()
+    {
+        var log = new FakeLog();
+        var queue = new OperationQueue(log: log);
+        queue.Add(new ChangeVolumeLabel('D', "Data"));
+        queue.Add(new ChangeDriveLetter('E', 'Z'));
+        var executor = new FakeExecutor();
+
+        var results = await queue.ApplyAsync(executor);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.True(r.Success));
+        Assert.Equal(new[]
+        {
+            "Set-Volume -DriveLetter D -NewFileSystemLabel 'Data'",
+            "Set-Partition -DriveLetter E -NewDriveLetter Z"
+        }, executor.Scripts);
+        Assert.Empty(queue.Pending);
+        Assert.Contains(log.Lines, l => l.StartsWith("COMPLETED"));
+    }
+
+    [Fact]
+    public async Task Apply_StopsAtFirstFailure_AndKeepsTheRestPending()
+    {
+        var queue = new OperationQueue();
+        var first = new ChangeVolumeLabel('D', "A");
+        var second = new ChangeVolumeLabel('E', "B");
+        var third = new ChangeVolumeLabel('F', "C");
+        queue.Add(first);
+        queue.Add(second);
+        queue.Add(third);
+
+        var executor = new FakeExecutor(script => script.Contains("-DriveLetter E")
+            ? new CommandResult(1, "", "Access denied")
+            : new CommandResult(0, "", ""));
+
+        var results = await queue.ApplyAsync(executor);
+
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].Success);
+        Assert.False(results[1].Success);
+        Assert.Equal("Access denied", results[1].Detail);
+        Assert.Equal(2, executor.Scripts.Count);                 // the third one was never run
+        Assert.Equal(new DiskOperation[] { second, third }, queue.Pending);
+    }
+
+    [Fact]
+    public async Task Simulation_RunsNothing_AndKeepsTheQueue()
+    {
+        var queue = new OperationQueue();
+        queue.Add(new FormatVolume('D', FileSystemFormat.NTFS, "X"));
+        var executor = new FakeExecutor();
+
+        var results = await queue.ApplyAsync(executor, simulation: true);
+
+        Assert.Empty(executor.Scripts);
+        Assert.Single(results);
+        Assert.Contains("Format-Volume", results[0].Detail);
+        Assert.Single(queue.Pending);
+    }
+
+    [Fact]
+    public async Task Apply_WithExceptionInExecutor_BecomesFailureAndStops()
+    {
+        var queue = new OperationQueue();
+        queue.Add(new ChangeVolumeLabel('D', "A"));
+        var executor = new FakeExecutor(_ => throw new IOException("no PowerShell"));
+
+        var results = await queue.ApplyAsync(executor);
+
+        Assert.Single(results);
+        Assert.False(results[0].Success);
+        Assert.Contains("no PowerShell", results[0].Detail);
+        Assert.Single(queue.Pending);
+    }
+}

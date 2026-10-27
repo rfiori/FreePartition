@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FreePartition.Core/FreePartition.Core.csproj" />
+    <Project Path="src/FreePartition.Wpf/FreePartition.Wpf.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FreePartition.Tests/FreePartition.Tests.csproj" />
+  </Folder>
+</Solution>

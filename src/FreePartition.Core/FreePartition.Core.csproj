@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>FreePartition.Core</RootNamespace>
+    <!-- Required by the P/Invoke generator ([LibraryImport]) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="10.*" />
+  </ItemGroup>
+
+</Project>
