@@ -95,7 +95,7 @@ Run in an **elevated** PowerShell. This creates a throwaway 2 GB NTFS disk you c
 format and delete files on without risking real data:
 
 ```powershell
-$vhd = "$env:USERPROFILE\Desktop\fp-test.vhdx"
+$vhd = "$env:USERPROFILE\fp-test.vhdx"
 New-VHD -Path $vhd -SizeBytes 2GB -Dynamic |
   Mount-VHD -Passthru |
   Initialize-Disk -PartitionStyle GPT -PassThru |
