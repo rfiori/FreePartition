@@ -1,0 +1,82 @@
+<Window x:Class="FreePartition.Wpf.HealthWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Disk health (S.M.A.R.T.)" Height="560" Width="820" MinHeight="420" MinWidth="640"
+        WindowStartupLocation="CenterOwner" Background="White">
+    <DockPanel Margin="14">
+
+        <StackPanel DockPanel.Dock="Top">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" x:Name="BtnReload" Content="Reload" Padding="12,3" Margin="8,0,0,0"
+                        Click="Reload_Click" />
+                <ComboBox x:Name="CmbDisks" SelectionChanged="CmbDisks_SelectionChanged" />
+            </DockPanel>
+
+            <Border x:Name="StatusBox" CornerRadius="3" BorderThickness="1" Padding="10,8" Margin="0,10,0,0">
+                <StackPanel>
+                    <TextBlock x:Name="TxtLevel" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock x:Name="TxtSummary" TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+            </Border>
+
+            <UniformGrid Columns="4" Margin="0,10,0,0">
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="Windows health" Foreground="#555" />
+                    <TextBlock x:Name="TxtHealth" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="Temperature" Foreground="#555" />
+                    <TextBlock x:Name="TxtTemperature" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Margin="0,0,8,0">
+                    <TextBlock Text="Power-on time" Foreground="#555" />
+                    <TextBlock x:Name="TxtPowerOn" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="Endurance used" Foreground="#555" />
+                    <TextBlock x:Name="TxtWear" FontWeight="SemiBold" />
+                </StackPanel>
+            </UniformGrid>
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0" TextWrapping="Wrap" FontSize="11" Foreground="#777"
+                   Text="Read-only: nothing is written to the disk. S.M.A.R.T. is a hint, not a guarantee — a disk can fail without warning, so keep backups." />
+
+        <Border x:Name="UnavailableBox" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,12,0,0"
+                Background="#FFF6E5" BorderBrush="#E8C77A" BorderThickness="1" CornerRadius="3" Padding="10,8">
+            <TextBlock x:Name="TxtUnavailable" TextWrapping="Wrap" Foreground="#5B4612" />
+        </Border>
+
+        <DataGrid x:Name="DetailsGrid" Margin="0,12,0,0" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                  HorizontalGridLinesBrush="#EEEEEE" BorderBrush="#D9D9D9" Visibility="Collapsed">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="NVMe health log" Binding="{Binding Key}" Width="240" />
+                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <DataGrid x:Name="AttributesGrid" Margin="0,12,0,0" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                  HorizontalGridLinesBrush="#EEEEEE" BorderBrush="#D9D9D9">
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Failing}" Value="True">
+                            <Setter Property="Foreground" Value="#B42318" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50" />
+                <DataGridTextColumn Header="Attribute" Binding="{Binding Name}" Width="*" />
+                <DataGridTextColumn Header="Current" Binding="{Binding Current}" Width="70" />
+                <DataGridTextColumn Header="Worst" Binding="{Binding Worst}" Width="70" />
+                <DataGridTextColumn Header="Threshold" Binding="{Binding Threshold}" Width="80" />
+                <DataGridTextColumn Header="Raw value" Binding="{Binding Raw}" Width="110" />
+                <DataGridCheckBoxColumn Header="Pre-failure" Binding="{Binding PreFailure, Mode=OneWay}" Width="80" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</Window>

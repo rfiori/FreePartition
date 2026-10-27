@@ -131,6 +131,7 @@
             </MenuItem>
             <MenuItem Header="Tools">
                 <MenuItem Header="Recover deleted files…" Click="BtnRecoverFiles_Click" />
+                <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click" />
                 <MenuItem Header="Open log folder" Click="MenuOpenLog_Click" />
             </MenuItem>
             <MenuItem Header="Help">
@@ -171,6 +172,13 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE721;" FontSize="22" Width="Auto" HorizontalAlignment="Center" />
                         <TextBlock Text="Recover files" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource ToolbarButton}" ToolTip="Check the S.M.A.R.T. health of the disks"
+                        Click="BtnDiskHealth_Click">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE95E;" FontSize="22" Width="Auto" HorizontalAlignment="Center" />
+                        <TextBlock Text="Disk health" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0" />
                     </StackPanel>
                 </Button>
             </StackPanel>

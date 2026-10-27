@@ -549,6 +549,9 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
+    private void BtnDiskHealth_Click(object sender, RoutedEventArgs e) =>
+        new HealthWindow { Owner = this }.ShowDialog();
+
     private void MenuAbout_Click(object sender, RoutedEventArgs e) =>
         new AboutWindow { Owner = this }.ShowDialog();
 
