@@ -14,7 +14,9 @@ public sealed record PartitionInfo(
     ulong Offset,
     ulong Size,
     bool Boot,
-    IReadOnlyList<LogicalVolumeInfo> Volumes);
+    IReadOnlyList<LogicalVolumeInfo> Volumes,
+    int Number = 0,   // 1-based number the Storage cmdlets use (differs from Index when WMI hides a partition, e.g. MSR)
+    IReadOnlyList<string>? Details = null);   // Boot, Page File, Crash Dump, Active, partition kind...
 
 public sealed record DiskInfo(
     int Index,

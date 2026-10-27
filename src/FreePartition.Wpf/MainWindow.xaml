@@ -245,6 +245,27 @@
                                 <TextBlock Text="Delete partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpActive" Style="{StaticResource OperationItem}" Click="OpActive_Click"
+                                ToolTip="Mark the selected MBR partition as active (bootable)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Set active" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpHide" Style="{StaticResource OperationItem}" Click="OpHide_Click"
+                                ToolTip="Remove the drive letter; the data stays untouched">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xED1A;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Hide partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpShow" Style="{StaticResource OperationItem}" Click="OpShow_Click"
+                                ToolTip="Give a drive letter to a hidden partition">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE7B3;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Show partition" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpExplore" Style="{StaticResource OperationItem}" Click="OpExplore_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE838;" Foreground="{StaticResource Accent}" />
@@ -333,15 +354,15 @@
                         </GroupStyle>
                     </DataGrid.GroupStyle>
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Partition" Binding="{Binding Name}" Width="230" />
-                        <DataGridTextColumn Header="File System" Binding="{Binding FileSystem}" Width="150" />
-                        <DataGridTextColumn Header="Capacity" Binding="{Binding Capacity}" Width="105"
+                        <DataGridTextColumn Header="Partition" Binding="{Binding Name}" Width="Auto" MinWidth="70" />
+                        <DataGridTextColumn Header="File System" Binding="{Binding FileSystem}" Width="Auto" MinWidth="70" />
+                        <DataGridTextColumn Header="Capacity" Binding="{Binding Capacity}" Width="Auto" MinWidth="70"
                                             ElementStyle="{StaticResource Number}" />
-                        <DataGridTextColumn Header="Used" Binding="{Binding Used}" Width="105"
+                        <DataGridTextColumn Header="Used" Binding="{Binding Used}" Width="Auto" MinWidth="70"
                                             ElementStyle="{StaticResource Number}" />
-                        <DataGridTextColumn Header="Unused" Binding="{Binding Unused}" Width="105"
+                        <DataGridTextColumn Header="Unused" Binding="{Binding Unused}" Width="Auto" MinWidth="70"
                                             ElementStyle="{StaticResource Number}" />
-                        <DataGridTextColumn Header="Status" Binding="{Binding State}" Width="90" />
+                        <DataGridTextColumn Header="Status" Binding="{Binding State}" Width="Auto" MinWidth="70" />
                         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
                     </DataGrid.Columns>
                 </DataGrid>

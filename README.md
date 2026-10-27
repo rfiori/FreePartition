@@ -41,7 +41,7 @@
 | --- | --- |
 | **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. |
 | **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree and recreating the original folders. |
-| **Partition operations** | Resize/extend (drag the partition bar), create and delete partitions, format (NTFS, FAT32, exFAT), change label, change drive letter. Also available from the right-click menu. |
+| **Partition operations** | Resize/extend (drag the partition bar), create and delete partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show. Also available from the right-click menu. |
 | **Disk health** | Read-only S.M.A.R.T. report per disk (Tools → Disk health): overall level, temperature, power-on time, wear and the ATA attribute table. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation*, plus a log in `%LocalAppData%\FreePartition\operations.log`. |
 
@@ -160,7 +160,7 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - [x] Change drive letter and label
 - [x] Create and delete partition
 - [ ] Initialize disk (MBR/GPT)
-- [ ] Set active partition, hide/show
+- [x] Set active partition, hide/show
 - [x] Disk health (S.M.A.R.T.)
 
 **Intermediate**

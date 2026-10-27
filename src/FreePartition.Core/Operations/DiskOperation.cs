@@ -198,6 +198,70 @@ public sealed record CreatePartition(
     }
 }
 
+/// <summary>Marks an MBR partition as active (bootable). Not applicable to GPT disks.</summary>
+public sealed record SetActivePartition(char Drive) : DiskOperation
+{
+    public override string Description => $"Set partition {char.ToUpperInvariant(Drive)}: as active (MBR only)";
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"Set-Partition -DriveLetter {NormalizeLetter(Drive)} -IsActive $true";
+    }
+}
+
+/// <summary>Hides a partition by removing its drive letter. The data stays untouched.</summary>
+public sealed record HidePartition(char Drive) : DiskOperation
+{
+    public override string Description => $"Hide partition {char.ToUpperInvariant(Drive)}: (remove its drive letter)";
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        char d = NormalizeLetter(Drive);
+        return $"Remove-PartitionAccessPath -DriveLetter {d} -AccessPath '{d}:\\'";
+    }
+}
+
+/// <summary>Shows a hidden partition by giving it a drive letter.</summary>
+public sealed record ShowPartition(int DiskNumber, int PartitionNumber, char Letter) : DiskOperation
+{
+    public override string Description =>
+        $"Show partition {PartitionNumber} of disk {DiskNumber} as {char.ToUpperInvariant(Letter)}:";
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Letter) };
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (PartitionNumber < 1)
+            throw new ArgumentException("Invalid partition number.");
+        NormalizeLetter(Letter);
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        // Skips the cmdlet when the partition already has this path (it fails with "already in use" otherwise).
+        char d = NormalizeLetter(Letter);
+        return $"$p = Get-Partition -DiskNumber {DiskNumber} -PartitionNumber {PartitionNumber}; " +
+               $"if ($p.AccessPaths -notcontains '{d}:\\') {{ Add-PartitionAccessPath -InputObject $p -AccessPath '{d}:\\' }}";
+    }
+}
+
 /// <summary>Deletes a partition (and its volume). ERASES all data on the drive.</summary>
 public sealed record DeletePartition(char Drive) : DiskOperation
 {

@@ -89,6 +89,42 @@ public class OperationQueueTests
         Assert.Empty(queue.Pending);
     }
 
+    // ---------- active / hide / show ----------
+
+    [Fact]
+    public void SetActive_GeneratesScript_AndIsRefusedOnSystemDrive()
+    {
+        Assert.Equal("Set-Partition -DriveLetter F -IsActive $true", new SetActivePartition('f').GenerateScript());
+
+        var queue = new OperationQueue(protectedDrive: 'C');
+        Assert.Throws<InvalidOperationException>(() => queue.Add(new SetActivePartition('c')));
+    }
+
+    [Fact]
+    public void HidePartition_GeneratesScript_AndIsRefusedOnSystemDrive()
+    {
+        Assert.Equal("Remove-PartitionAccessPath -DriveLetter F -AccessPath 'F:\\'", new HidePartition('f').GenerateScript());
+
+        var queue = new OperationQueue(protectedDrive: 'C');
+        Assert.Throws<InvalidOperationException>(() => queue.Add(new HidePartition('c')));
+    }
+
+    [Fact]
+    public void ShowPartition_GeneratesScript()
+    {
+        Assert.Equal("$p = Get-Partition -DiskNumber 1 -PartitionNumber 2; " +
+                     "if ($p.AccessPaths -notcontains 'G:\\') { Add-PartitionAccessPath -InputObject $p -AccessPath 'G:\\' }",
+            new ShowPartition(1, 2, 'g').GenerateScript());
+    }
+
+    [Fact]
+    public void ShowPartition_WithInvalidValues_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new ShowPartition(-1, 1, 'G').Validate());
+        Assert.Throws<ArgumentException>(() => new ShowPartition(0, 0, 'G').Validate());
+        Assert.Throws<ArgumentException>(() => new ShowPartition(0, 1, '1').Validate());
+    }
+
     // ---------- validation ----------
 
     [Theory]
