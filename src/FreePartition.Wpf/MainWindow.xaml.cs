@@ -16,7 +16,7 @@ namespace FreePartition.Wpf;
 public sealed record PartitionRow(
     string Disk, string Name, string FileSystem, string Capacity, string Used,
     string Unused, string State, string Type,
-    char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated);
+    char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex);
 
 /// <summary>A disk with its rows, for the graphical map.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows);
@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         _systemLetter = Path.GetPathRoot(Environment.SystemDirectory) is { Length: > 0 } root ? char.ToUpperInvariant(root[0]) : null;
         _queue = new OperationQueue(_systemLetter, new FileLog(FileLog.DefaultPath));
         _queue.Changed += (_, _) => RefreshPending();
+        Loaded += (_, _) => DisksGrid.ContextMenu = BuildContextMenu();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -99,14 +100,14 @@ public partial class MainWindow : Window
         foreach (var partition in disk.Partitions)
         {
             if (partition.Offset > cursor && partition.Offset - cursor >= UnallocatedThreshold)
-                rows.Add(UnallocatedRow(title, partition.Offset - cursor));
+                rows.Add(UnallocatedRow(title, disk.Index, partition.Offset - cursor));
 
             string type = TranslateType(partition.Type, gpt);
 
             if (partition.Volumes.Count == 0)
             {
                 rows.Add(new PartitionRow(title, $"Partition {partition.Index}", "", ByteFormatter.Format(partition.Size),
-                    "", "", "None", type, null, null, partition.Size, 0, false));
+                    "", "", "None", type, null, null, partition.Size, 0, false, disk.Index));
             }
 
             foreach (var volume in partition.Volumes)
@@ -120,21 +121,21 @@ public partial class MainWindow : Window
                     ByteFormatter.Format(volume.Size), ByteFormatter.Format(used),
                     ByteFormatter.Format(volume.Free),
                     letter is not null && letter == _systemLetter ? "System" : "None",
-                    type, letter, volume.Label, partition.Size, used, false));
+                    type, letter, volume.Label, partition.Size, used, false, disk.Index));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
         }
 
         if (disk.Size > cursor && disk.Size - cursor >= UnallocatedThreshold)
-            rows.Add(UnallocatedRow(title, disk.Size - cursor));
+            rows.Add(UnallocatedRow(title, disk.Index, disk.Size - cursor));
 
         return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows);
     }
 
-    private static PartitionRow UnallocatedRow(string disk, ulong size) =>
+    private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong size) =>
         new(disk, "*", "Unallocated", ByteFormatter.Format(size), "0 B", ByteFormatter.Format(size),
-            "None", "", null, null, size, 0, true);
+            "None", "", null, null, size, 0, true, diskIndex);
 
     private static string TranslateType(string type, bool gpt)
     {
@@ -222,8 +223,10 @@ public partial class MainWindow : Window
         var box = new Border
         {
             Background = NormalBox, BorderBrush = borderBrush, BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 3, 0), Cursor = Cursors.Hand, Child = content, ToolTip = title
+            Margin = new Thickness(0, 0, 3, 0), Cursor = Cursors.Hand, Child = content, ToolTip = title,
+            ContextMenu = BuildContextMenu()
         };
+        box.MouseRightButtonDown += (_, _) => DisksGrid.SelectedItem = part;
         box.MouseLeftButtonDown += (_, _) =>
         {
             DisksGrid.SelectedItem = part;
@@ -240,6 +243,41 @@ public partial class MainWindow : Window
         RefreshAvailableOperations();
     }
 
+    // ------------------------------------------------------------------ Context menu
+
+    /// <summary>Right-click menu that mirrors the Operations panel (each item clicks the matching button).</summary>
+    private ContextMenu BuildContextMenu()
+    {
+        var menu = new ContextMenu();
+        foreach (var button in new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpExplore, OpProperties })
+        {
+            var texts = ((StackPanel)button.Content).Children.OfType<TextBlock>().ToList();
+            var item = new MenuItem
+            {
+                Header = texts[1].Text,
+                Icon = new TextBlock { Text = texts[0].Text, FontFamily = new FontFamily("Segoe MDL2 Assets"), Foreground = (Brush)FindResource("Accent") }
+            };
+            item.Click += (_, _) => button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            menu.Items.Add(item);
+        }
+        menu.Opened += (_, _) =>
+        {
+            var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpExplore, OpProperties };
+            for (int i = 0; i < buttons.Length; i++)
+                ((MenuItem)menu.Items[i]).IsEnabled = buttons[i].IsEnabled;
+        };
+        return menu;
+    }
+
+    private void DisksGrid_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        while (source is not null and not DataGridRow)
+            source = VisualTreeHelper.GetParent(source);
+        if (source is DataGridRow row)
+            row.IsSelected = true;
+    }
+
     // ------------------------------------------------------------------ Operations panel
 
     private PartitionRow? Selected => DisksGrid.SelectedItem as PartitionRow;
@@ -251,14 +289,48 @@ public partial class MainWindow : Window
         OpLabel.IsEnabled = hasLetter;
         OpLetter.IsEnabled = hasLetter;
         OpFormat.IsEnabled = hasLetter;
+        OpDelete.IsEnabled = hasLetter;
+        OpCreate.IsEnabled = Selected is { Unallocated: true };
         OpExplore.IsEnabled = hasLetter;
         OpProperties.IsEnabled = Selected is { Unallocated: false };
     }
 
-    private void OpResize_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Resize partition",
-            [new DialogField("New size (GB, empty = maximum):")],
-            (letter, v) => new ResizePartition(letter, ConvertGbToBytes(v[0])));
+    private async void OpResize_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: false, Letter: { } letter } row) return;
+
+        // Room to extend = unallocated space right after the partition on the same disk.
+        var rows = DisksGrid.Items.OfType<PartitionRow>().ToList();
+        int at = rows.IndexOf(row);
+        ulong room = at >= 0 && at + 1 < rows.Count && rows[at + 1] is { Unallocated: true } next && next.DiskIndex == row.DiskIndex
+            ? next.Size : 0;
+
+        // Ask Windows for the real limits (unmovable files make the minimum larger than the used space).
+        // If the query fails, fall back to the used space and the adjacent free space.
+        ulong min = row.UsedBytes, max = row.Size + room;
+        Cursor = Cursors.Wait;
+        try
+        {
+            if (await SupportedSize.QueryAsync(letter, new PowerShellExecutor()) is { } limits)
+                (min, max) = ((ulong)limits.MinBytes, Math.Max((ulong)limits.MaxBytes, row.Size));
+        }
+        finally
+        {
+            Cursor = null;
+        }
+
+        var dialog = new ResizeDialog(letter, row.Size, min, max) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            _queue.Add(new ResizePartition(letter, dialog.NewSizeBytes));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 
     private void OpLabel_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Change label",
@@ -268,8 +340,15 @@ public partial class MainWindow : Window
     private void OpLetter_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Change letter",
             [new DialogField("New letter:")],
-            (letter, v) => new ChangeDriveLetter(letter,
-                v[0].Length == 1 ? v[0][0] : throw new ArgumentException("Enter the new letter (one character).")));
+            (letter, v) =>
+            {
+                if (v[0].Length != 1)
+                    throw new ArgumentException("Enter the new letter (one character).");
+                char newLetter = char.ToUpperInvariant(v[0][0]);
+                if (DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == newLetter))
+                    throw new ArgumentException($"Drive letter {newLetter}: is already in use.");
+                return new ChangeDriveLetter(letter, newLetter);
+            });
 
     private void OpFormat_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Format partition",
@@ -277,6 +356,43 @@ public partial class MainWindow : Window
              new DialogField("Label:", Selected?.Label ?? "")],
             (letter, v) => new FormatVolume(letter, ConvertFileSystem(v[0]), v[1]),
             "Formatting ERASES all data on the drive.");
+
+    private void OpCreate_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: true } free) return;
+
+        var dialog = new ParametersDialog("Create partition",
+            $"Disk {free.DiskIndex} — free space: {free.Capacity}",
+            [new DialogField("Size (GB, empty = all free space):"),
+             new DialogField("File system:", "NTFS", Enum.GetNames<FileSystemFormat>()),
+             new DialogField("Label:"),
+             new DialogField("Drive letter (empty = automatic):")]) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var v = dialog.Values;
+            long? size = ConvertGbToBytes(v[0]);
+            if (size is { } bytes && (ulong)bytes > free.Size)
+                throw new ArgumentException($"The size exceeds the free space ({free.Capacity}).");
+            if (v[3].Length > 1)
+                throw new ArgumentException("Enter a single character for the drive letter.");
+            char? letter = v[3].Length == 1 ? char.ToUpperInvariant(v[3][0]) : null;
+            if (letter is not null && DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == letter))
+                throw new ArgumentException($"Drive letter {letter}: is already in use.");
+
+            _queue.Add(new CreatePartition(free.DiskIndex, ConvertFileSystem(v[1]), v[2], size, letter));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void OpDelete_Click(object sender, RoutedEventArgs e) =>
+        AddWithDialog("Delete partition", [],
+            (letter, _) => new DeletePartition(letter),
+            "Deleting ERASES all data on the drive.");
 
     private void AddWithDialog(string title, IReadOnlyList<DialogField> fields,
         Func<char, string[], DiskOperation> create, string? warning = null)
@@ -433,11 +549,11 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
     }
 
+    private void BtnDiskHealth_Click(object sender, RoutedEventArgs e) =>
+        new HealthWindow { Owner = this }.ShowDialog();
+
     private void MenuAbout_Click(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(this,
-            "FreePartition\n\nDisk operations only run when you click Apply. " +
-            "Simulation mode is checked by default.",
-            "About", MessageBoxButton.OK, MessageBoxImage.Information);
+        new AboutWindow { Owner = this }.ShowDialog();
 
     private void MenuExit_Click(object sender, RoutedEventArgs e) => Close();
 }

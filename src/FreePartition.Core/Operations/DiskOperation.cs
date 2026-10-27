@@ -154,3 +154,63 @@ public sealed record ChangeDriveLetter(char Current, char New) : DiskOperation
         return $"Set-Partition -DriveLetter {NormalizeLetter(Current)} -NewDriveLetter {NormalizeLetter(New)}";
     }
 }
+
+/// <summary>
+/// Creates a partition in the unallocated space of a disk and formats it.
+/// Without a size, uses all the remaining space. Without a letter, Windows picks one.
+/// </summary>
+public sealed record CreatePartition(
+    int DiskNumber, FileSystemFormat FileSystem, string Label = "",
+    long? SizeBytes = null, char? Letter = null) : DiskOperation
+{
+    private const long MinimumSize = 1L << 20;   // 1 MiB
+
+    public override string Description =>
+        $"Create {(SizeBytes is null ? "a partition using all free space" : $"a {ByteFormatter.Format(SizeBytes.Value)} partition")} " +
+        $"on disk {DiskNumber} as {FileSystem}" +
+        (Letter is { } l ? $" (letter {char.ToUpperInvariant(l)}:)" : "") +
+        (string.IsNullOrEmpty(Label) ? "" : $" (label \"{Label}\")");
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives =>
+        Letter is { } l ? new[] { char.ToUpperInvariant(l) } : Array.Empty<char>();
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (Letter is { } l) NormalizeLetter(l);
+        if (!Enum.IsDefined(FileSystem))
+            throw new ArgumentException("Invalid file system. Use NTFS, FAT32 or exFAT.");
+        if (SizeBytes is < MinimumSize)
+            throw new ArgumentException("The new size must be at least 1 MB.");
+        ValidateLabel(Label, FileSystem == FileSystemFormat.FAT32 ? 11 : 32);
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        string size = SizeBytes is { } bytes ? $"-Size {bytes}" : "-UseMaximumSize";
+        string letter = Letter is { } l ? $"-DriveLetter {NormalizeLetter(l)}" : "-AssignDriveLetter";
+        return $"$p = New-Partition -DiskNumber {DiskNumber} {size} {letter}; " +
+               $"Format-Volume -Partition $p -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false";
+    }
+}
+
+/// <summary>Deletes a partition (and its volume). ERASES all data on the drive.</summary>
+public sealed record DeletePartition(char Drive) : DiskOperation
+{
+    public override string Description => $"Delete partition {char.ToUpperInvariant(Drive)}: — ERASES ALL DATA";
+    public override bool Destructive => true;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"Remove-Partition -DriveLetter {NormalizeLetter(Drive)} -Confirm:$false";
+    }
+}

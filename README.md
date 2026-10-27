@@ -40,16 +40,17 @@
 | Area | Feature |
 | --- | --- |
 | **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. |
-| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive. |
-| **Partition operations** | Resize/extend, format (NTFS, FAT32, exFAT), change label, change drive letter. |
+| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree and recreating the original folders. |
+| **Partition operations** | Resize/extend (drag the partition bar), create and delete partitions, format (NTFS, FAT32, exFAT), change label, change drive letter. Also available from the right-click menu. |
+| **Disk health** | Read-only S.M.A.R.T. report per disk (Tools → Disk health): overall level, temperature, power-on time, wear and the ATA attribute table. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation*, plus a log in `%LocalAppData%\FreePartition\operations.log`. |
 
 Not implemented yet: move partition, clone disk, MBR ↔ GPT conversion. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
-<!-- Add screenshots here before publishing: docs/images/main-window.png and docs/images/recovery.png -->
-_Coming soon — the app requires elevation, so screenshots are captured manually._
+<img src="docs/screenshots/main-window.webp" alt="FreePartition main window" width="100%">
+<img src="docs/screenshots/main-window_disk_health.webp" alt="FreePartition Disk Health" width="33%">
 
 ## Requirements
 
@@ -96,12 +97,12 @@ Run in an **elevated** PowerShell. This creates a throwaway 2 GB NTFS disk you c
 format and delete files on without risking real data:
 
 ```powershell
-$vhd = "$env:USERPROFILE\Desktop\fp-test.vhdx"
+$vhd = "$env:USERPROFILE\FreePartition-test.vhdx"
 New-VHD -Path $vhd -SizeBytes 2GB -Dynamic |
   Mount-VHD -Passthru |
   Initialize-Disk -PartitionStyle GPT -PassThru |
   New-Partition -UseMaximumSize -AssignDriveLetter |
-  Format-Volume -FileSystem NTFS -NewFileSystemLabel FPTEST -Confirm:$false
+  Format-Volume -FileSystem NTFS -NewFileSystemLabel FreePartition_TEST -Confirm:$false
 ```
 
 Copy some files to the new drive, delete them, then scan that volume in FreePartition.
@@ -142,7 +143,7 @@ The guarantees the code is built around:
 FreePartition.slnx                     # the solution
 Directory.Build.props                  # TargetFramework and shared options
 src/FreePartition.Core/                # all logic, no UI, testable without a real disk
-  Disks/       DiskService (WMI), RawVolume (reads \\.\C:), Models
+  Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models
   Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
   Operations/  DiskOperation (+ types), OperationQueue, PowerShellExecutor, OperationLog
   Util/        ByteFormatter
@@ -157,10 +158,10 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - [x] Format (NTFS, FAT32, exFAT)
 - [x] Shrink and extend partition
 - [x] Change drive letter and label
-- [ ] Create and delete partition
+- [x] Create and delete partition
 - [ ] Initialize disk (MBR/GPT)
 - [ ] Set active partition, hide/show
-- [ ] Disk health (S.M.A.R.T.)
+- [x] Disk health (S.M.A.R.T.)
 
 **Intermediate**
 - [x] Pending-operations queue (Apply/Undo)

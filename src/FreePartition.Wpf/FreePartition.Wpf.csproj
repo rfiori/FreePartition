@@ -5,7 +5,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>FreePartition.Wpf</RootNamespace>
     <AssemblyName>FreePartition</AssemblyName>
-    <!-- O app precisa de administrador para abrir o volume bruto (\\.\C:) -->
+    <!-- The app needs administrator rights to open the raw volume (\\.\C:) -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 

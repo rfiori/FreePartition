@@ -56,6 +56,39 @@ public class OperationQueueTests
         Assert.Equal("Set-Partition -DriveLetter G -NewDriveLetter H", new ChangeDriveLetter('g', 'h').GenerateScript());
     }
 
+
+    // ---------- create / delete partition ----------
+
+    [Fact]
+    public void CreatePartition_GeneratesScript()
+    {
+        var all = new CreatePartition(1, FileSystemFormat.NTFS, "Data").GenerateScript();
+        Assert.Equal("$p = New-Partition -DiskNumber 1 -UseMaximumSize -AssignDriveLetter; " +
+                     "Format-Volume -Partition $p -FileSystem NTFS -NewFileSystemLabel 'Data' -Confirm:$false", all);
+
+        var sized = new CreatePartition(2, FileSystemFormat.exFAT, "", 5_000_000_000, 'm').GenerateScript();
+        Assert.Contains("-Size 5000000000 -DriveLetter M;", sized);
+    }
+
+    [Fact]
+    public void CreatePartition_InvalidParameters_AreRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new CreatePartition(-1, FileSystemFormat.NTFS).Validate());
+        Assert.Throws<ArgumentException>(() => new CreatePartition(1, FileSystemFormat.NTFS, "", 1000).Validate());
+        Assert.Throws<ArgumentException>(() => new CreatePartition(1, FileSystemFormat.NTFS, "", null, '1').Validate());
+        Assert.Throws<ArgumentException>(() => new CreatePartition(1, FileSystemFormat.NTFS, "x'; calc; '").Validate());
+    }
+
+    [Fact]
+    public void DeletePartition_GeneratesScript_AndIsRefusedOnSystemDrive()
+    {
+        Assert.Equal("Remove-Partition -DriveLetter F -Confirm:$false", new DeletePartition('f').GenerateScript());
+
+        var queue = new OperationQueue(protectedDrive: 'C');
+        Assert.Throws<InvalidOperationException>(() => queue.Add(new DeletePartition('c')));
+        Assert.Empty(queue.Pending);
+    }
+
     // ---------- validation ----------
 
     [Theory]
@@ -200,5 +233,28 @@ public class OperationQueueTests
         Assert.False(results[0].Success);
         Assert.Contains("no PowerShell", results[0].Detail);
         Assert.Single(queue.Pending);
+    }
+
+    // ---------- supported size ----------
+
+    [Fact]
+    public void SupportedSize_Parse_AcceptsTwoNumbersAndRejectsGarbage()
+    {
+        Assert.Equal(new SupportedSize(1000, 5000), SupportedSize.Parse("1000 5000\r\n"));
+        Assert.Null(SupportedSize.Parse(""));
+        Assert.Null(SupportedSize.Parse("abc 5000"));
+        Assert.Null(SupportedSize.Parse("5000 1000"));
+        Assert.Null(SupportedSize.Parse("1 2 3"));
+    }
+
+    [Fact]
+    public async Task SupportedSize_Query_UsesExecutorAndHandlesFailure()
+    {
+        var ok = new FakeExecutor(_ => new CommandResult(0, "2000 9000", ""));
+        Assert.Equal(new SupportedSize(2000, 9000), await SupportedSize.QueryAsync('d', ok));
+        Assert.Contains("Get-PartitionSupportedSize -DriveLetter D", ok.Scripts[0]);
+
+        var failing = new FakeExecutor(_ => new CommandResult(1, "", "boom"));
+        Assert.Null(await SupportedSize.QueryAsync('d', failing));
     }
 }
