@@ -119,23 +119,68 @@
         <!-- ===================== MENU ===================== -->
         <Menu DockPanel.Dock="Top" Background="White" Padding="2,2">
             <MenuItem Header="General">
-                <MenuItem Header="Refresh disks" Click="BtnRefreshDisks_Click" />
-                <MenuItem Header="Apply pending operations" Click="BtnApplyOperations_Click" />
-                <MenuItem Header="Undo all" Click="BtnClearQueue_Click" />
+                <MenuItem Header="Refresh disks" Click="BtnRefreshDisks_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE72C;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Apply pending operations" Click="BtnApplyOperations_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Undo all" Click="BtnClearQueue_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE7A7;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="Exit" Click="MenuExit_Click" />
+                <MenuItem Header="Exit" Click="MenuExit_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE7E8;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="View">
                 <MenuItem x:Name="MenuShowLog" Header="Show operations log" IsCheckable="True"
-                          Checked="MenuShowLog_Changed" Unchecked="MenuShowLog_Changed" />
+                          Checked="MenuShowLog_Changed" Unchecked="MenuShowLog_Changed">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8A5;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="Tools">
-                <MenuItem Header="Recover deleted files…" Click="BtnRecoverFiles_Click" />
-                <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click" />
-                <MenuItem Header="Open log folder" Click="MenuOpenLog_Click" />
+                <MenuItem Header="Recover deleted files…" Click="BtnRecoverFiles_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE721;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE95E;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Open log folder" Click="MenuOpenLog_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8B7;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="Help">
-                <MenuItem Header="About" Click="MenuAbout_Click" />
+                <MenuItem Header="About" Click="MenuAbout_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
         </Menu>
 
