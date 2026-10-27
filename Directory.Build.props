@@ -5,7 +5,7 @@
 		<LangVersion>latest</LangVersion>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<Version>0.0.2</Version>
+		<Version>0.0.2-alpha</Version>
 		<DebugType>embedded</DebugType>
 	</PropertyGroup>
 </Project>

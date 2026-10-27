@@ -19,6 +19,12 @@ public class OperationQueueTests
         }
     }
 
+    /// <summary>Progress that runs on the calling thread (Progress&lt;T&gt; posts, so a test could miss the message).</summary>
+    private sealed class SyncProgress(Action<string> onReport) : IProgress<string>
+    {
+        public void Report(string value) => onReport(value);
+    }
+
     private sealed class FakeLog : IOperationLog
     {
         public List<string> Lines { get; } = new();
@@ -123,6 +129,44 @@ public class OperationQueueTests
         Assert.Throws<ArgumentException>(() => new ShowPartition(-1, 1, 'G').Validate());
         Assert.Throws<ArgumentException>(() => new ShowPartition(0, 0, 'G').Validate());
         Assert.Throws<ArgumentException>(() => new ShowPartition(0, 1, '1').Validate());
+    }
+
+    // ---------- check volume ----------
+
+    [Fact]
+    public void CheckVolume_ScanOnly_IsSafeAndAllowedOnSystemDrive()
+    {
+        var scan = new CheckVolume('c');
+        Assert.Equal("$r = Repair-Volume -DriveLetter C -Scan; \"Result for C: $r\"", scan.GenerateScript());
+        Assert.False(scan.Destructive);
+
+        var queue = new OperationQueue(protectedDrive: 'C');
+        queue.Add(scan);
+        Assert.Single(queue.Pending);
+    }
+
+    [Fact]
+    public void CheckVolume_Repair_IsDestructiveAndRefusedOnSystemDrive()
+    {
+        var repair = new CheckVolume('f', Repair: true);
+        Assert.Equal("$r = Repair-Volume -DriveLetter F -OfflineScanAndFix; \"Result for F: $r\"", repair.GenerateScript());
+        Assert.True(repair.Destructive);
+
+        var queue = new OperationQueue(protectedDrive: 'C');
+        Assert.Throws<InvalidOperationException>(() => queue.Add(new CheckVolume('c', Repair: true)));
+    }
+
+    [Fact]
+    public async Task CheckVolume_ShowsTheCommandOutputInTheProgress()
+    {
+        var queue = new OperationQueue();
+        queue.Add(new CheckVolume('D'));
+        var messages = new List<string>();
+
+        await queue.ApplyAsync(new FakeExecutor(_ => new CommandResult(0, "Result for D: NoErrorsFound", "")),
+            progress: new SyncProgress(messages.Add));
+
+        Assert.Contains(messages, m => m.Contains("NoErrorsFound"));
     }
 
     // ---------- validation ----------

@@ -26,4 +26,5 @@ public sealed record DiskInfo(
     string? Interface,
     string? Status,
     string PartitionStyle,
-    IReadOnlyList<PartitionInfo> Partitions);
+    IReadOnlyList<PartitionInfo> Partitions,
+    bool IsSsd = false);   // from the Storage stack (Win32_DiskDrive.MediaType cannot tell SSDs from HDDs)

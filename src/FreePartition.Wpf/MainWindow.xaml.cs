@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -47,6 +48,23 @@ public partial class MainWindow : Window
         _queue = new OperationQueue(_systemLetter, new FileLog(FileLog.DefaultPath));
         _queue.Changed += (_, _) => RefreshPending();
         Loaded += (_, _) => DisksGrid.ContextMenu = BuildContextMenu();
+
+        var assembly = Assembly.GetExecutingAssembly();
+        string version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                         ?? assembly.GetName().Version?.ToString()
+                         ?? "unknown";
+        int plus = version.IndexOf('+');
+        if (plus > 0) version = version[..plus];
+        TxtVersion.Text = $"v{version}";
+    }
+
+    private int _busyCount;
+
+    /// <summary>Shows the status-bar spinner while any long-running work is in progress.</summary>
+    private void SetBusy(bool busy)
+    {
+        _busyCount = Math.Max(0, _busyCount + (busy ? 1 : -1));
+        BusySpinner.Visibility = _busyCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -62,6 +80,7 @@ public partial class MainWindow : Window
 
     private async Task LoadDisksAsync()
     {
+        SetBusy(true);
         try
         {
             BtnRefreshDisks.IsEnabled = false;
@@ -88,6 +107,7 @@ public partial class MainWindow : Window
         finally
         {
             BtnRefreshDisks.IsEnabled = true;
+            SetBusy(false);
         }
     }
 
@@ -262,7 +282,7 @@ public partial class MainWindow : Window
     private ContextMenu BuildContextMenu()
     {
         var menu = new ContextMenu();
-        var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpActive, OpHide, OpShow, OpExplore, OpProperties };
+        var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
         foreach (var button in buttons)
         {
             var texts = ((StackPanel)button.Content).Children.OfType<TextBlock>().ToList();
@@ -304,6 +324,7 @@ public partial class MainWindow : Window
         OpFormat.IsEnabled = hasLetter;
         OpDelete.IsEnabled = hasLetter;
         OpCreate.IsEnabled = Selected is { Unallocated: true };
+        OpCheck.IsEnabled = hasLetter;
         OpActive.IsEnabled = Selected is { Unallocated: false, Letter: not null, Gpt: false, PartitionNumber: > 0 };
         OpHide.IsEnabled = hasLetter;
         OpShow.IsEnabled = Selected is { Unallocated: false, Letter: null, PartitionNumber: > 0 };
@@ -325,6 +346,7 @@ public partial class MainWindow : Window
         // If the query fails, fall back to the used space and the adjacent free space.
         ulong min = row.UsedBytes, max = row.Size + room;
         Cursor = Cursors.Wait;
+        SetBusy(true);
         try
         {
             if (await SupportedSize.QueryAsync(letter, new PowerShellExecutor()) is { } limits)
@@ -333,6 +355,7 @@ public partial class MainWindow : Window
         finally
         {
             Cursor = null;
+            SetBusy(false);
         }
 
         var dialog = new ResizeDialog(letter, row.Size, min, max) { Owner = this };
@@ -424,6 +447,15 @@ public partial class MainWindow : Window
         AddWithDialog("Delete partition", [],
             (letter, _) => new DeletePartition(letter),
             "Deleting ERASES all data on the drive.");
+
+    private const string ScanOnly = "Scan only (read-only)";
+    private const string ScanAndRepair = "Scan and repair";
+
+    private void OpCheck_Click(object sender, RoutedEventArgs e) =>
+        AddWithDialog("Check for errors",
+            [new DialogField("Mode:", ScanOnly, [ScanOnly, ScanAndRepair])],
+            (letter, v) => new CheckVolume(letter, Repair: v[0] == ScanAndRepair),
+            "Repairing takes the volume offline and is not allowed on the Windows drive.");
 
     private void OpActive_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Set active partition", [],
@@ -554,6 +586,7 @@ public partial class MainWindow : Window
         _operationsCts?.Dispose();
         _operationsCts = new CancellationTokenSource();
         ToggleOperations(running: true);
+        SetBusy(true);
 
         MenuShowLog.IsChecked = true;
         TxtOperationsLog.Clear();
@@ -586,6 +619,7 @@ public partial class MainWindow : Window
         finally
         {
             ToggleOperations(running: false);
+            SetBusy(false);
         }
     }
 

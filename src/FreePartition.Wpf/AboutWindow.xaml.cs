@@ -26,7 +26,7 @@ public partial class AboutWindow : Window
         int plus = version.IndexOf('+');
         if (plus > 0) version = version[..plus];
 
-        TxtVersion.Text = $"{version} (alpha)";
+        TxtVersion.Text = version;
         TxtRuntime.Text = RuntimeInformation.FrameworkDescription;
         TxtOs.Text = $"{RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})";
         TxtElevation.Text = IsElevated() ? "Administrator" : "Standard user — disk operations will fail";

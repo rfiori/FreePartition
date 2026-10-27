@@ -119,6 +119,8 @@ public sealed class OperationQueue
                 _pending.Remove(operation);
                 _log.Log($"COMPLETED: {operation.Description}");
                 progress?.Report($"✔ {operation.Description}");
+                if (operation.ShowsOutput && !string.IsNullOrWhiteSpace(result.Output))
+                    progress?.Report("    " + result.Output.Trim().ReplaceLineEndings(Environment.NewLine + "    "));
                 results.Add(new OperationResult(operation, true, result.Output.Trim()));
                 Changed?.Invoke(this, EventArgs.Empty);
             }

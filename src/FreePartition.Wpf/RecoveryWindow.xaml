@@ -7,12 +7,21 @@
 
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8" Foreground="#B45309">
             Read-only on the source disk. Always recover to ANOTHER disk.
-            On SSDs with TRIM enabled, deleted files are usually zeroed out and cannot be recovered.
         </TextBlock>
+
+        <Border x:Name="TrimWarning" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,0,0,8" Padding="8,6"
+                Background="#FDECEC" BorderBrush="#C0392B" BorderThickness="1">
+            <TextBlock TextWrapping="Wrap" Foreground="#922B21">
+                <Run FontWeight="SemiBold">This drive is on an SSD.</Run>
+                Windows normally sends TRIM when a file is deleted, so the SSD erases those blocks and the deleted files
+                are usually gone for good. A scan can still list names, but the data is likely zeroed out.
+                Stop using this drive now: every write lowers the chance further.
+            </TextBlock>
+        </Border>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Drive (NTFS):" VerticalAlignment="Center" />
-            <ComboBox x:Name="CmbDrives" Width="80" Margin="8,0,0,0" />
+            <ComboBox x:Name="CmbDrives" Width="80" Margin="8,0,0,0" SelectionChanged="CmbDrives_SelectionChanged" />
             <Button x:Name="BtnScan" Content="Scan" Padding="14,4" Margin="12,0,0,0" Click="BtnScan_Click" />
             <Button x:Name="BtnCancel" Content="Cancel" Padding="14,4" Margin="8,0,0,0"
                     IsEnabled="False" Click="BtnCancel_Click" />

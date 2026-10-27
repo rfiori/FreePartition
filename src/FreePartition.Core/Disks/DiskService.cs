@@ -13,6 +13,7 @@ public static class DiskService
         var result = new List<DiskInfo>();
         var volumesByPartition = MapVolumes();
         var files = FindSystemFiles();
+        var ssdDisks = FindSsdDisks();
 
         using var diskSearcher = new ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive");
         foreach (var obj in diskSearcher.Get())
@@ -35,7 +36,8 @@ public static class DiskService
                 Interface: Text(disk["InterfaceType"]),
                 Status: Text(disk["Status"]),
                 PartitionStyle: style,
-                Partitions: partitions));
+                Partitions: partitions,
+                IsSsd: ssdDisks.Contains(index)));
         }
 
         return result.OrderBy(d => d.Index).ToList();
@@ -146,6 +148,29 @@ public static class DiskService
             };
         }
         return mbrType is null ? null : "Primary Partition";
+    }
+
+    /// <summary>Numbers of the physical disks that are SSDs (MSFT_PhysicalDisk.MediaType 4; best effort).</summary>
+    private static HashSet<int> FindSsdDisks()
+    {
+        var ssds = new HashSet<int>();
+        try
+        {
+            var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
+            using var searcher = new ManagementObjectSearcher(scope,
+                new ObjectQuery("SELECT DeviceId, MediaType FROM MSFT_PhysicalDisk"));
+            foreach (var obj in searcher.Get())
+            {
+                using var disk = (ManagementObject)obj;
+                if (Convert.ToInt32(disk["MediaType"] ?? 0) == 4 && int.TryParse(Text(disk["DeviceId"]), out int number))
+                    ssds.Add(number);
+            }
+        }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException or FormatException)
+        {
+            ssds.Clear();
+        }
+        return ssds;
     }
 
     private sealed record SystemFiles(HashSet<char> PageFileDrives, char? CrashDumpDrive);

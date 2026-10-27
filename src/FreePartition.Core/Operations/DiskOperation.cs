@@ -22,6 +22,9 @@ public abstract record DiskOperation
 
     public abstract IReadOnlyList<char> AffectedDrives { get; }
 
+    /// <summary>The command's output is the point of the operation (e.g. a scan result), so it is shown in the log.</summary>
+    public virtual bool ShowsOutput => false;
+
     public string RiskText => Destructive ? "Destructive" : "Safe";
 
     /// <exception cref="ArgumentException">Invalid parameters.</exception>
@@ -195,6 +198,32 @@ public sealed record CreatePartition(
         string letter = Letter is { } l ? $"-DriveLetter {NormalizeLetter(l)}" : "-AssignDriveLetter";
         return $"$p = New-Partition -DiskNumber {DiskNumber} {size} {letter}; " +
                $"Format-Volume -Partition $p -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false";
+    }
+}
+
+/// <summary>
+/// Checks a volume for file system errors (like chkdsk). A scan only reads; a repair can change the file system
+/// (and takes the volume offline), so it is refused on the Windows drive.
+/// </summary>
+public sealed record CheckVolume(char Drive, bool Repair = false) : DiskOperation
+{
+    public override string Description => Repair
+        ? $"Check {char.ToUpperInvariant(Drive)}: for errors and repair them"
+        : $"Check {char.ToUpperInvariant(Drive)}: for errors (scan only)";
+
+    public override bool Destructive => Repair;
+    public override bool ForbiddenOnSystemDrive => Repair;
+    public override bool ShowsOutput => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        char d = NormalizeLetter(Drive);
+        string mode = Repair ? "-OfflineScanAndFix" : "-Scan";
+        return $"$r = Repair-Volume -DriveLetter {d} {mode}; \"Result for {d}: $r\"";
     }
 }
 

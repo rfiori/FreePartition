@@ -187,8 +187,34 @@
         <!-- ===================== STATUS BAR ===================== -->
         <Border DockPanel.Dock="Bottom" Background="#F7F7F7" BorderBrush="{StaticResource Line}"
                 BorderThickness="0,1,0,0" Padding="8,4">
-            <TextBlock x:Name="TxtDiskStatus" Foreground="#444444"
-                       Text="We recommend closing all other applications while disk operations are running." />
+            <DockPanel LastChildFill="True">
+                <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" Foreground="#777777" Margin="12,0,0,0" />
+
+                <!-- Busy indicator: a spinning arc, visible only while something is processing -->
+                <Ellipse x:Name="BusySpinner" DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0"
+                         Stroke="{StaticResource Accent}" StrokeThickness="2" StrokeDashArray="3 3"
+                         StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"
+                         VerticalAlignment="Center">
+                    <Ellipse.RenderTransform>
+                        <RotateTransform x:Name="BusyRotation" />
+                    </Ellipse.RenderTransform>
+                    <Ellipse.Triggers>
+                        <EventTrigger RoutedEvent="Loaded">
+                            <BeginStoryboard>
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="BusyRotation"
+                                                     Storyboard.TargetProperty="Angle"
+                                                     From="0" To="360" Duration="0:0:1"
+                                                     RepeatBehavior="Forever" />
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Ellipse.Triggers>
+                </Ellipse>
+
+                <TextBlock x:Name="TxtDiskStatus" Foreground="#444444" TextTrimming="CharacterEllipsis"
+                           Text="We recommend closing all other applications while disk operations are running." />
+            </DockPanel>
         </Border>
 
         <Grid>
@@ -245,6 +271,13 @@
                                 <TextBlock Text="Delete partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpCheck" Style="{StaticResource OperationItem}" Click="OpCheck_Click"
+                                ToolTip="Check the selected volume for file system errors (chkdsk)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Check for errors" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpActive" Style="{StaticResource OperationItem}" Click="OpActive_Click"
                                 ToolTip="Mark the selected MBR partition as active (bootable)">
                             <StackPanel Orientation="Horizontal">
@@ -286,7 +319,23 @@
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="8">
-                        <CheckBox x:Name="ChkSimulation" Content="Simulation (does not execute)" IsChecked="True" />
+                        <!-- Simulation on = safe (amber); off = changes are real (red) -->
+                        <CheckBox x:Name="ChkSimulation" IsChecked="True" FontWeight="Bold">
+                            <TextBlock>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Simulation (does not execute)" />
+                                        <Setter Property="Foreground" Value="#C26A00" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsChecked, ElementName=ChkSimulation}" Value="False">
+                                                <Setter Property="Text" Value="REAL MODE: changes the disk!" />
+                                                <Setter Property="Foreground" Value="#C62828" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </CheckBox>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <Button x:Name="BtnClearQueue" Content="Undo all" Padding="10,3" Click="BtnClearQueue_Click" />
                             <Button x:Name="BtnCancelOperations" Content="Cancel" Padding="10,3" Margin="6,0,0,0"
