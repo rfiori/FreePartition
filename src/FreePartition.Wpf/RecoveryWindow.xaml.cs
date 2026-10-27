@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using FreePartition.Core.Disks;
 using FreePartition.Core.Ntfs;
 using Microsoft.Win32;
 
@@ -18,7 +19,38 @@ public partial class RecoveryWindow : Window
     {
         InitializeComponent();
         LoadDrives(initialDrive);
+        _ = LoadMediaTypesAsync();
     }
+
+    /// <summary>Letters of the drives that sit on an SSD (filled in the background: WMI can be slow).</summary>
+    private readonly HashSet<string> _ssdDrives = new();
+
+    private async Task LoadMediaTypesAsync()
+    {
+        try
+        {
+            var disks = await Task.Run(DiskService.ListDisks);
+            foreach (var disk in disks.Where(d => d.IsSsd))
+            {
+                foreach (var volume in disk.Partitions.SelectMany(p => p.Volumes))
+                {
+                    if (volume.Letter.Length > 0)
+                        _ssdDrives.Add(char.ToUpperInvariant(volume.Letter[0]).ToString());
+                }
+            }
+            UpdateTrimWarning();
+        }
+        catch (Exception ex) when (ex is System.Management.ManagementException or UnauthorizedAccessException)
+        {
+            // No warning is better than a failed window: the scan itself does not depend on this.
+        }
+    }
+
+    private void CmbDrives_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateTrimWarning();
+
+    private void UpdateTrimWarning() =>
+        TrimWarning.Visibility = CmbDrives.SelectedItem is string drive && _ssdDrives.Contains(drive)
+            ? Visibility.Visible : Visibility.Collapsed;
 
     private void Window_Closed(object? sender, EventArgs e)
     {

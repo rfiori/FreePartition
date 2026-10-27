@@ -119,23 +119,68 @@
         <!-- ===================== MENU ===================== -->
         <Menu DockPanel.Dock="Top" Background="White" Padding="2,2">
             <MenuItem Header="General">
-                <MenuItem Header="Refresh disks" Click="BtnRefreshDisks_Click" />
-                <MenuItem Header="Apply pending operations" Click="BtnApplyOperations_Click" />
-                <MenuItem Header="Undo all" Click="BtnClearQueue_Click" />
+                <MenuItem Header="Refresh disks" Click="BtnRefreshDisks_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE72C;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Apply pending operations" Click="BtnApplyOperations_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Undo all" Click="BtnClearQueue_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE7A7;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <Separator />
-                <MenuItem Header="Exit" Click="MenuExit_Click" />
+                <MenuItem Header="Exit" Click="MenuExit_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE7E8;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="View">
                 <MenuItem x:Name="MenuShowLog" Header="Show operations log" IsCheckable="True"
-                          Checked="MenuShowLog_Changed" Unchecked="MenuShowLog_Changed" />
+                          Checked="MenuShowLog_Changed" Unchecked="MenuShowLog_Changed">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8A5;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="Tools">
-                <MenuItem Header="Recover deleted files…" Click="BtnRecoverFiles_Click" />
-                <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click" />
-                <MenuItem Header="Open log folder" Click="MenuOpenLog_Click" />
+                <MenuItem Header="Recover deleted files…" Click="BtnRecoverFiles_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE721;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE95E;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Open log folder" Click="MenuOpenLog_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE8B7;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="Help">
-                <MenuItem Header="About" Click="MenuAbout_Click" />
+                <MenuItem Header="About" Click="MenuAbout_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
             </MenuItem>
         </Menu>
 
@@ -187,8 +232,34 @@
         <!-- ===================== STATUS BAR ===================== -->
         <Border DockPanel.Dock="Bottom" Background="#F7F7F7" BorderBrush="{StaticResource Line}"
                 BorderThickness="0,1,0,0" Padding="8,4">
-            <TextBlock x:Name="TxtDiskStatus" Foreground="#444444"
-                       Text="We recommend closing all other applications while disk operations are running." />
+            <DockPanel LastChildFill="True">
+                <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" Foreground="#777777" Margin="12,0,0,0" />
+
+                <!-- Busy indicator: a spinning arc, visible only while something is processing -->
+                <Ellipse x:Name="BusySpinner" DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0"
+                         Stroke="{StaticResource Accent}" StrokeThickness="2" StrokeDashArray="3 3"
+                         StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"
+                         VerticalAlignment="Center">
+                    <Ellipse.RenderTransform>
+                        <RotateTransform x:Name="BusyRotation" />
+                    </Ellipse.RenderTransform>
+                    <Ellipse.Triggers>
+                        <EventTrigger RoutedEvent="Loaded">
+                            <BeginStoryboard>
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetName="BusyRotation"
+                                                     Storyboard.TargetProperty="Angle"
+                                                     From="0" To="360" Duration="0:0:1"
+                                                     RepeatBehavior="Forever" />
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Ellipse.Triggers>
+                </Ellipse>
+
+                <TextBlock x:Name="TxtDiskStatus" Foreground="#444444" TextTrimming="CharacterEllipsis"
+                           Text="We recommend closing all other applications while disk operations are running." />
+            </DockPanel>
         </Border>
 
         <Grid>
@@ -245,6 +316,34 @@
                                 <TextBlock Text="Delete partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpCheck" Style="{StaticResource OperationItem}" Click="OpCheck_Click"
+                                ToolTip="Check the selected volume for file system errors (chkdsk)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Check for errors" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpActive" Style="{StaticResource OperationItem}" Click="OpActive_Click"
+                                ToolTip="Mark the selected MBR partition as active (bootable)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Set active" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpHide" Style="{StaticResource OperationItem}" Click="OpHide_Click"
+                                ToolTip="Remove the drive letter; the data stays untouched">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xED1A;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Hide partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpShow" Style="{StaticResource OperationItem}" Click="OpShow_Click"
+                                ToolTip="Give a drive letter to a hidden partition">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE7B3;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Show partition" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpExplore" Style="{StaticResource OperationItem}" Click="OpExplore_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE838;" Foreground="{StaticResource Accent}" />
@@ -265,7 +364,23 @@
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="8">
-                        <CheckBox x:Name="ChkSimulation" Content="Simulation (does not execute)" IsChecked="True" />
+                        <!-- Simulation on = safe (amber); off = changes are real (red) -->
+                        <CheckBox x:Name="ChkSimulation" IsChecked="True" FontWeight="Bold">
+                            <TextBlock>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Simulation (does not execute)" />
+                                        <Setter Property="Foreground" Value="#C26A00" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsChecked, ElementName=ChkSimulation}" Value="False">
+                                                <Setter Property="Text" Value="REAL MODE: changes the disk!" />
+                                                <Setter Property="Foreground" Value="#C62828" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </CheckBox>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <Button x:Name="BtnClearQueue" Content="Undo all" Padding="10,3" Click="BtnClearQueue_Click" />
                             <Button x:Name="BtnCancelOperations" Content="Cancel" Padding="10,3" Margin="6,0,0,0"
@@ -333,15 +448,15 @@
                         </GroupStyle>
                     </DataGrid.GroupStyle>
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Partition" Binding="{Binding Name}" Width="230" />
-                        <DataGridTextColumn Header="File System" Binding="{Binding FileSystem}" Width="150" />
-                        <DataGridTextColumn Header="Capacity" Binding="{Binding Capacity}" Width="105"
+                        <DataGridTextColumn Header="Partition" Binding="{Binding Name}" Width="Auto" MinWidth="70" />
+                        <DataGridTextColumn Header="File System" Binding="{Binding FileSystem}" Width="Auto" MinWidth="70" />
+                        <DataGridTextColumn Header="Capacity" Binding="{Binding Capacity}" Width="Auto" MinWidth="70"
                                             ElementStyle="{StaticResource Number}" />
-                        <DataGridTextColumn Header="Used" Binding="{Binding Used}" Width="105"
+                        <DataGridTextColumn Header="Used" Binding="{Binding Used}" Width="Auto" MinWidth="70"
                                             ElementStyle="{StaticResource Number}" />
-                        <DataGridTextColumn Header="Unused" Binding="{Binding Unused}" Width="105"
+                        <DataGridTextColumn Header="Unused" Binding="{Binding Unused}" Width="Auto" MinWidth="70"
                                             ElementStyle="{StaticResource Number}" />
-                        <DataGridTextColumn Header="Status" Binding="{Binding State}" Width="90" />
+                        <DataGridTextColumn Header="Status" Binding="{Binding State}" Width="Auto" MinWidth="70" />
                         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="*" />
                     </DataGrid.Columns>
                 </DataGrid>

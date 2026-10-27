@@ -22,6 +22,9 @@ public abstract record DiskOperation
 
     public abstract IReadOnlyList<char> AffectedDrives { get; }
 
+    /// <summary>The command's output is the point of the operation (e.g. a scan result), so it is shown in the log.</summary>
+    public virtual bool ShowsOutput => false;
+
     public string RiskText => Destructive ? "Destructive" : "Safe";
 
     /// <exception cref="ArgumentException">Invalid parameters.</exception>
@@ -195,6 +198,96 @@ public sealed record CreatePartition(
         string letter = Letter is { } l ? $"-DriveLetter {NormalizeLetter(l)}" : "-AssignDriveLetter";
         return $"$p = New-Partition -DiskNumber {DiskNumber} {size} {letter}; " +
                $"Format-Volume -Partition $p -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false";
+    }
+}
+
+/// <summary>
+/// Checks a volume for file system errors (like chkdsk). A scan only reads; a repair can change the file system
+/// (and takes the volume offline), so it is refused on the Windows drive.
+/// </summary>
+public sealed record CheckVolume(char Drive, bool Repair = false) : DiskOperation
+{
+    public override string Description => Repair
+        ? $"Check {char.ToUpperInvariant(Drive)}: for errors and repair them"
+        : $"Check {char.ToUpperInvariant(Drive)}: for errors (scan only)";
+
+    public override bool Destructive => Repair;
+    public override bool ForbiddenOnSystemDrive => Repair;
+    public override bool ShowsOutput => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        char d = NormalizeLetter(Drive);
+        string mode = Repair ? "-OfflineScanAndFix" : "-Scan";
+        return $"$r = Repair-Volume -DriveLetter {d} {mode}; \"Result for {d}: $r\"";
+    }
+}
+
+/// <summary>Marks an MBR partition as active (bootable). Not applicable to GPT disks.</summary>
+public sealed record SetActivePartition(char Drive) : DiskOperation
+{
+    public override string Description => $"Set partition {char.ToUpperInvariant(Drive)}: as active (MBR only)";
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"Set-Partition -DriveLetter {NormalizeLetter(Drive)} -IsActive $true";
+    }
+}
+
+/// <summary>Hides a partition by removing its drive letter. The data stays untouched.</summary>
+public sealed record HidePartition(char Drive) : DiskOperation
+{
+    public override string Description => $"Hide partition {char.ToUpperInvariant(Drive)}: (remove its drive letter)";
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate() => NormalizeLetter(Drive);
+
+    public override string GenerateScript()
+    {
+        Validate();
+        char d = NormalizeLetter(Drive);
+        return $"Remove-PartitionAccessPath -DriveLetter {d} -AccessPath '{d}:\\'";
+    }
+}
+
+/// <summary>Shows a hidden partition by giving it a drive letter.</summary>
+public sealed record ShowPartition(int DiskNumber, int PartitionNumber, char Letter) : DiskOperation
+{
+    public override string Description =>
+        $"Show partition {PartitionNumber} of disk {DiskNumber} as {char.ToUpperInvariant(Letter)}:";
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Letter) };
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (PartitionNumber < 1)
+            throw new ArgumentException("Invalid partition number.");
+        NormalizeLetter(Letter);
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        // Skips the cmdlet when the partition already has this path (it fails with "already in use" otherwise).
+        char d = NormalizeLetter(Letter);
+        return $"$p = Get-Partition -DiskNumber {DiskNumber} -PartitionNumber {PartitionNumber}; " +
+               $"if ($p.AccessPaths -notcontains '{d}:\\') {{ Add-PartitionAccessPath -InputObject $p -AccessPath '{d}:\\' }}";
     }
 }
 

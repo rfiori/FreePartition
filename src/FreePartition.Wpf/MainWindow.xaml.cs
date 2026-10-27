@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -16,7 +17,8 @@ namespace FreePartition.Wpf;
 public sealed record PartitionRow(
     string Disk, string Name, string FileSystem, string Capacity, string Used,
     string Unused, string State, string Type,
-    char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex);
+    char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
+    int PartitionNumber = 0, bool Gpt = false);
 
 /// <summary>A disk with its rows, for the graphical map.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows);
@@ -46,6 +48,23 @@ public partial class MainWindow : Window
         _queue = new OperationQueue(_systemLetter, new FileLog(FileLog.DefaultPath));
         _queue.Changed += (_, _) => RefreshPending();
         Loaded += (_, _) => DisksGrid.ContextMenu = BuildContextMenu();
+
+        var assembly = Assembly.GetExecutingAssembly();
+        string version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                         ?? assembly.GetName().Version?.ToString()
+                         ?? "unknown";
+        int plus = version.IndexOf('+');
+        if (plus > 0) version = version[..plus];
+        TxtVersion.Text = $"v{version}";
+    }
+
+    private int _busyCount;
+
+    /// <summary>Shows the status-bar spinner while any long-running work is in progress.</summary>
+    private void SetBusy(bool busy)
+    {
+        _busyCount = Math.Max(0, _busyCount + (busy ? 1 : -1));
+        BusySpinner.Visibility = _busyCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -61,6 +80,7 @@ public partial class MainWindow : Window
 
     private async Task LoadDisksAsync()
     {
+        SetBusy(true);
         try
         {
             BtnRefreshDisks.IsEnabled = false;
@@ -87,6 +107,7 @@ public partial class MainWindow : Window
         finally
         {
             BtnRefreshDisks.IsEnabled = true;
+            SetBusy(false);
         }
     }
 
@@ -103,11 +124,12 @@ public partial class MainWindow : Window
                 rows.Add(UnallocatedRow(title, disk.Index, partition.Offset - cursor));
 
             string type = TranslateType(partition.Type, gpt);
+            string state = StatusText(disk.Status, partition.Details);
 
             if (partition.Volumes.Count == 0)
             {
                 rows.Add(new PartitionRow(title, $"Partition {partition.Index}", "", ByteFormatter.Format(partition.Size),
-                    "", "", "None", type, null, null, partition.Size, 0, false, disk.Index));
+                    "", "", state, type, null, null, partition.Size, 0, false, disk.Index, partition.Number, gpt));
             }
 
             foreach (var volume in partition.Volumes)
@@ -118,10 +140,10 @@ public partial class MainWindow : Window
                 ulong used = volume.Size > volume.Free ? volume.Size - volume.Free : 0;
 
                 rows.Add(new PartitionRow(title, name, volume.FileSystem ?? "",
-                    ByteFormatter.Format(volume.Size), ByteFormatter.Format(used),
-                    ByteFormatter.Format(volume.Free),
-                    letter is not null && letter == _systemLetter ? "System" : "None",
-                    type, letter, volume.Label, partition.Size, used, false, disk.Index));
+                    ByteFormatter.Format(volume.Size), WithPercent(used, volume.Size),
+                    WithPercent(volume.Free, volume.Size),
+                    state,
+                    type, letter, volume.Label, partition.Size, used, false, disk.Index, partition.Number, gpt));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
@@ -136,6 +158,17 @@ public partial class MainWindow : Window
     private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong size) =>
         new(disk, "*", "Unallocated", ByteFormatter.Format(size), "0 B", ByteFormatter.Format(size),
             "None", "", null, null, size, 0, true, diskIndex);
+
+    /// <summary>"120 GB (33%)": the size followed by its share of the volume.</summary>
+    private static string WithPercent(ulong bytes, ulong total) =>
+        total == 0 ? ByteFormatter.Format(bytes) : $"{ByteFormatter.Format(bytes)} ({(double)bytes / total:P0})";
+
+    /// <summary>Like Disk Management: "Healthy (Boot, Page File, Crash Dump, Basic Data Partition)".</summary>
+    private static string StatusText(string? diskStatus, IReadOnlyList<string>? details)
+    {
+        string health = string.Equals(diskStatus, "OK", StringComparison.OrdinalIgnoreCase) ? "Healthy" : diskStatus ?? "Unknown";
+        return details is { Count: > 0 } ? $"{health} ({string.Join(", ", details)})" : health;
+    }
 
     private static string TranslateType(string type, bool gpt)
     {
@@ -249,7 +282,8 @@ public partial class MainWindow : Window
     private ContextMenu BuildContextMenu()
     {
         var menu = new ContextMenu();
-        foreach (var button in new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpExplore, OpProperties })
+        var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
+        foreach (var button in buttons)
         {
             var texts = ((StackPanel)button.Content).Children.OfType<TextBlock>().ToList();
             var item = new MenuItem
@@ -262,7 +296,6 @@ public partial class MainWindow : Window
         }
         menu.Opened += (_, _) =>
         {
-            var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpExplore, OpProperties };
             for (int i = 0; i < buttons.Length; i++)
                 ((MenuItem)menu.Items[i]).IsEnabled = buttons[i].IsEnabled;
         };
@@ -291,6 +324,10 @@ public partial class MainWindow : Window
         OpFormat.IsEnabled = hasLetter;
         OpDelete.IsEnabled = hasLetter;
         OpCreate.IsEnabled = Selected is { Unallocated: true };
+        OpCheck.IsEnabled = hasLetter;
+        OpActive.IsEnabled = Selected is { Unallocated: false, Letter: not null, Gpt: false, PartitionNumber: > 0 };
+        OpHide.IsEnabled = hasLetter;
+        OpShow.IsEnabled = Selected is { Unallocated: false, Letter: null, PartitionNumber: > 0 };
         OpExplore.IsEnabled = hasLetter;
         OpProperties.IsEnabled = Selected is { Unallocated: false };
     }
@@ -309,6 +346,7 @@ public partial class MainWindow : Window
         // If the query fails, fall back to the used space and the adjacent free space.
         ulong min = row.UsedBytes, max = row.Size + room;
         Cursor = Cursors.Wait;
+        SetBusy(true);
         try
         {
             if (await SupportedSize.QueryAsync(letter, new PowerShellExecutor()) is { } limits)
@@ -317,6 +355,7 @@ public partial class MainWindow : Window
         finally
         {
             Cursor = null;
+            SetBusy(false);
         }
 
         var dialog = new ResizeDialog(letter, row.Size, min, max) { Owner = this };
@@ -337,13 +376,30 @@ public partial class MainWindow : Window
             [new DialogField("New label:", Selected?.Label ?? "")],
             (letter, v) => new ChangeVolumeLabel(letter, v[0]));
 
+    private const string AutomaticLetter = "(automatic)";
+
+    /// <summary>Combo-box field with the letters still free (not on a volume, a drive or the pending queue).</summary>
+    private DialogField LetterField(string label, string? first = null)
+    {
+        var used = DisksGrid.Items.OfType<PartitionRow>().Where(r => r.Letter is not null).Select(r => r.Letter!.Value)
+            .Concat(DriveInfo.GetDrives().Select(d => char.ToUpperInvariant(d.Name[0])))
+            .Concat(_queue.Pending.SelectMany(op => op.AffectedDrives))
+            .ToHashSet();
+
+        var options = new List<string>();
+        if (first is not null) options.Add(first);
+        options.AddRange(Enumerable.Range('C', 'Z' - 'C' + 1).Select(c => (char)c)
+            .Where(c => !used.Contains(c)).Select(c => c.ToString()));
+        return new DialogField(label, "", options);
+    }
+
     private void OpLetter_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Change letter",
-            [new DialogField("New letter:")],
+            [LetterField("New letter:")],
             (letter, v) =>
             {
                 if (v[0].Length != 1)
-                    throw new ArgumentException("Enter the new letter (one character).");
+                    throw new ArgumentException("No drive letter is available.");
                 char newLetter = char.ToUpperInvariant(v[0][0]);
                 if (DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == newLetter))
                     throw new ArgumentException($"Drive letter {newLetter}: is already in use.");
@@ -366,7 +422,7 @@ public partial class MainWindow : Window
             [new DialogField("Size (GB, empty = all free space):"),
              new DialogField("File system:", "NTFS", Enum.GetNames<FileSystemFormat>()),
              new DialogField("Label:"),
-             new DialogField("Drive letter (empty = automatic):")]) { Owner = this };
+             LetterField("Drive letter:", AutomaticLetter)]) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
         try
@@ -375,9 +431,7 @@ public partial class MainWindow : Window
             long? size = ConvertGbToBytes(v[0]);
             if (size is { } bytes && (ulong)bytes > free.Size)
                 throw new ArgumentException($"The size exceeds the free space ({free.Capacity}).");
-            if (v[3].Length > 1)
-                throw new ArgumentException("Enter a single character for the drive letter.");
-            char? letter = v[3].Length == 1 ? char.ToUpperInvariant(v[3][0]) : null;
+            char? letter = v[3].Length == 1 ? char.ToUpperInvariant(v[3][0]) : null;   // "(automatic)" = no letter
             if (letter is not null && DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == letter))
                 throw new ArgumentException($"Drive letter {letter}: is already in use.");
 
@@ -393,6 +447,51 @@ public partial class MainWindow : Window
         AddWithDialog("Delete partition", [],
             (letter, _) => new DeletePartition(letter),
             "Deleting ERASES all data on the drive.");
+
+    private const string ScanOnly = "Scan only (read-only)";
+    private const string ScanAndRepair = "Scan and repair";
+
+    private void OpCheck_Click(object sender, RoutedEventArgs e) =>
+        AddWithDialog("Check for errors",
+            [new DialogField("Mode:", ScanOnly, [ScanOnly, ScanAndRepair])],
+            (letter, v) => new CheckVolume(letter, Repair: v[0] == ScanAndRepair),
+            "Repairing takes the volume offline and is not allowed on the Windows drive.");
+
+    private void OpActive_Click(object sender, RoutedEventArgs e) =>
+        AddWithDialog("Set active partition", [],
+            (letter, _) => new SetActivePartition(letter),
+            "Marks the partition as active (bootable). MBR disks only.");
+
+    private void OpHide_Click(object sender, RoutedEventArgs e) =>
+        AddWithDialog("Hide partition", [],
+            (letter, _) => new HidePartition(letter),
+            "Removes the drive letter. The data stays untouched.");
+
+    private void OpShow_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: false, Letter: null, PartitionNumber: > 0 } row) return;
+
+        var dialog = new ParametersDialog("Show partition",
+            $"Disk {row.DiskIndex}, partition {row.PartitionNumber} — {row.Capacity}",
+            [LetterField("Drive letter:")]) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            string text = dialog.Values[0];
+            if (text.Length != 1)
+                throw new ArgumentException("No drive letter is available.");
+            char letter = char.ToUpperInvariant(text[0]);
+            if (DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == letter))
+                throw new ArgumentException($"Drive letter {letter}: is already in use.");
+
+            _queue.Add(new ShowPartition(row.DiskIndex, row.PartitionNumber, letter));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 
     private void AddWithDialog(string title, IReadOnlyList<DialogField> fields,
         Func<char, string[], DiskOperation> create, string? warning = null)
@@ -487,6 +586,7 @@ public partial class MainWindow : Window
         _operationsCts?.Dispose();
         _operationsCts = new CancellationTokenSource();
         ToggleOperations(running: true);
+        SetBusy(true);
 
         MenuShowLog.IsChecked = true;
         TxtOperationsLog.Clear();
@@ -519,6 +619,7 @@ public partial class MainWindow : Window
         finally
         {
             ToggleOperations(running: false);
+            SetBusy(false);
         }
     }
 
