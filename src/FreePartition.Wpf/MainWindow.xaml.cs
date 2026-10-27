@@ -434,10 +434,7 @@ public partial class MainWindow : Window
     }
 
     private void MenuAbout_Click(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(this,
-            "FreePartition\n\nDisk operations only run when you click Apply. " +
-            "Simulation mode is checked by default.",
-            "About", MessageBoxButton.OK, MessageBoxImage.Information);
+        new AboutWindow { Owner = this }.ShowDialog();
 
     private void MenuExit_Click(object sender, RoutedEventArgs e) => Close();
 }
