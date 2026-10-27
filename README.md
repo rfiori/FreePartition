@@ -48,8 +48,7 @@ Not implemented yet: move partition, clone disk, MBR ↔ GPT conversion. See the
 
 ## Screenshots
 
-<!-- Add screenshots here before publishing: docs/images/main-window.png and docs/images/recovery.png -->
-_Coming soon — the app requires elevation, so screenshots are captured manually._
+<img src="docs/screenshots/main-window.webp" alt="FreePartition main window" width="1000">
 
 ## Requirements
 
