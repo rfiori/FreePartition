@@ -1,8 +1,6 @@
-using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using FreePartition.Core.Ntfs;
 using Microsoft.Win32;
 
@@ -12,8 +10,9 @@ namespace FreePartition.Wpf;
 public partial class RecoveryWindow : Window
 {
     private CancellationTokenSource? _cts;
+    private bool _busy;
     private ScanResult? _result;
-    private ICollectionView? _view;
+    private readonly HashSet<long> _checked = new();   // MFT record numbers of the checked files
 
     public RecoveryWindow(char? initialDrive = null)
     {
@@ -54,7 +53,9 @@ public partial class RecoveryWindow : Window
         _cts = new CancellationTokenSource();
 
         ToggleScan(running: true);
-        FilesGrid.ItemsSource = null;
+        FilesTree.ItemsSource = null;
+        _checked.Clear();
+        UpdateRecoverButton();
         _result = null;
         Progress.Value = 0;
 
@@ -68,9 +69,7 @@ public partial class RecoveryWindow : Window
         {
             _result = await new DeletedFileScanner().ScanAsync(drive, progress, _cts.Token);
 
-            _view = CollectionViewSource.GetDefaultView(_result.Files);
-            _view.Filter = FilterByName;
-            FilesGrid.ItemsSource = _view;
+            RebuildTree();
 
             Progress.Value = 100;
             TxtFileStatus.Text =
@@ -99,27 +98,46 @@ public partial class RecoveryWindow : Window
         BtnScan.IsEnabled = !running;
         BtnCancel.IsEnabled = running;
         CmbDrives.IsEnabled = !running;
-        BtnRecover.IsEnabled = !running;
+        _busy = running;
+        UpdateRecoverButton();
     }
 
-    private bool FilterByName(object item)
+    private void RebuildTree()
     {
-        if (item is not DeletedFile file) return false;
+        if (_result is null) return;
+
         string filter = TxtFilter.Text.Trim();
-        return filter.Length == 0 || file.Name.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        var files = filter.Length == 0
+            ? _result.Files
+            : _result.Files.Where(f => f.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var root = FolderNode.Build(files);
+        FilesTree.ItemsSource = TreeNode.Build(root, expandAll: filter.Length > 0,
+            isChecked: f => _checked.Contains(f.MftRecordNumber),
+            onFileChecked: (f, isChecked) =>
+            {
+                if (isChecked) _checked.Add(f.MftRecordNumber); else _checked.Remove(f.MftRecordNumber);
+                UpdateRecoverButton();
+            });
     }
 
-    private void TxtFilter_TextChanged(object sender, TextChangedEventArgs e) => _view?.Refresh();
+    private void UpdateRecoverButton()
+    {
+        BtnRecover.IsEnabled = !_busy && _checked.Count > 0;
+        BtnRecover.Content = _checked.Count > 0 ? $"Recover checked ({_checked.Count:N0})…" : "Recover checked…";
+    }
+
+    private void TxtFilter_TextChanged(object sender, TextChangedEventArgs e) => RebuildTree();
 
     private async void BtnRecover_Click(object sender, RoutedEventArgs e)
     {
         var result = _result;
         if (result is null) return;
 
-        var selected = FilesGrid.SelectedItems.Cast<DeletedFile>().ToList();
+        var selected = result.Files.Where(f => _checked.Contains(f.MftRecordNumber)).ToList();
         if (selected.Count == 0)
         {
-            MessageBox.Show(this, "Select at least one file in the list.", "Notice");
+            MessageBox.Show(this, "Check at least one file in the tree.", "Notice");
             return;
         }
 
@@ -127,7 +145,8 @@ public partial class RecoveryWindow : Window
         if (dialog.ShowDialog(this) != true) return;
         string destination = dialog.FolderName;
 
-        BtnRecover.IsEnabled = false;
+        _busy = true;
+        UpdateRecoverButton();
         TxtFileStatus.Text = $"Recovering {selected.Count} file(s)...";
 
         int recovered = 0;
@@ -140,7 +159,7 @@ public partial class RecoveryWindow : Window
             {
                 try
                 {
-                    recoverer.Recover(result, file, destination);
+                    recoverer.Recover(result, file, destination, keepFolders: true);
                     recovered++;
                 }
                 catch (Exception ex)
@@ -150,14 +169,21 @@ public partial class RecoveryWindow : Window
             }
         });
 
-        BtnRecover.IsEnabled = true;
+        _busy = false;
+        UpdateRecoverButton();
         TxtFileStatus.Text = $"{recovered} file(s) recovered to {destination}.";
 
         if (errors.Count > 0)
         {
             MessageBox.Show(this,
+                $"{recovered:N0} of {selected.Count:N0} file(s) recovered to {destination}.\n\n" +
                 $"{errors.Count} file(s) could not be recovered:\n\n" + string.Join("\n", errors.Take(10)),
                 "Partial recovery", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        else
+        {
+            MessageBox.Show(this, $"{recovered:N0} file(s) recovered to {destination}.",
+                "Recovery finished", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 }

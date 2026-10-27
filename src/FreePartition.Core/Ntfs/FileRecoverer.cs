@@ -13,7 +13,8 @@ public sealed class FileRecoverer
     private const int BufferSize = 1 << 20;   // 1 MiB
 
     /// <returns>Path of the recovered file.</returns>
-    public string Recover(ScanResult result, DeletedFile file, string destinationFolder)
+    /// <param name="keepFolders">Recreates the original folder structure under <paramref name="destinationFolder"/>.</param>
+    public string Recover(ScanResult result, DeletedFile file, string destinationFolder, bool keepFolders = false)
     {
         if (!file.IsRecoverable)
             throw new InvalidOperationException("This file cannot be recovered (compressed, encrypted or without data).");
@@ -22,6 +23,9 @@ public sealed class FileRecoverer
         if (destinationRoot.StartsWith(result.Drive + ":", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
                 $"Choose a folder on ANOTHER disk. Writing to {result.Drive}: may overwrite the data you want to recover.");
+
+        if (keepFolders)
+            destinationFolder = Path.Combine([destinationFolder, .. FolderSegments(file.Path)]);
 
         Directory.CreateDirectory(destinationFolder);
         string destination = UniquePath(destinationFolder, SafeName(file.Name));
@@ -57,6 +61,12 @@ public sealed class FileRecoverer
 
         return destination;
     }
+
+    /// <summary>Original folder names, sanitized so they can never escape the destination folder.</summary>
+    public static IEnumerable<string> FolderSegments(string path) =>
+        path.Split('\\', StringSplitOptions.RemoveEmptyEntries)
+            .Select(SafeName)
+            .Where(s => s.Trim('.', ' ').Length > 0);
 
     private static string SafeName(string name)
     {

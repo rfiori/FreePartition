@@ -223,6 +223,20 @@
                                 <TextBlock Text="Format partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpCreate" Style="{StaticResource OperationItem}" Click="OpCreate_Click"
+                                ToolTip="Create a partition in the selected unallocated space">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Create partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpDelete" Style="{StaticResource OperationItem}" Click="OpDelete_Click"
+                                ToolTip="Erases all data on the partition">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Delete partition" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpExplore" Style="{StaticResource OperationItem}" Click="OpExplore_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE838;" Foreground="{StaticResource Accent}" />
@@ -281,7 +295,8 @@
                           CanUserAddRows="False" CanUserSortColumns="False" CanUserReorderColumns="False"
                           HeadersVisibility="Column" GridLinesVisibility="None" SelectionMode="Single"
                           SelectionUnit="FullRow" BorderThickness="0" Background="White"
-                          SelectionChanged="DisksGrid_SelectionChanged">
+                          SelectionChanged="DisksGrid_SelectionChanged"
+                          PreviewMouseRightButtonDown="DisksGrid_RightClick">
                     <DataGrid.GroupStyle>
                         <GroupStyle>
                             <GroupStyle.ContainerStyle>
