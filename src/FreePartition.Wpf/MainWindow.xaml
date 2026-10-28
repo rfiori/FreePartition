@@ -297,6 +297,13 @@
                                 <TextBlock Text="Split partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpMove" Style="{StaticResource OperationItem}" Click="OpMove_Click"
+                                ToolTip="Move the selected partition into free space on the same disk (data is lost if interrupted)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8AB;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Move partition" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpLabel" Style="{StaticResource OperationItem}" Click="OpLabel_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE8AC;" Foreground="{StaticResource Accent}" />

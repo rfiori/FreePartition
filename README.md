@@ -39,13 +39,13 @@
 
 | Area | Feature |
 | --- | --- |
-| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. |
-| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree and recreating the original folders. |
-| **Partition operations** | Resize/extend (drag the partition bar), create, delete, merge and split partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors. Also available from the right-click menu. |
+| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
+| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex) of the selected file. |
+| **Partition operations** | Resize/extend (drag the partition bar), create, delete, merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors. Also available from the right-click menu. |
 | **Disk health** | Read-only S.M.A.R.T. report per disk (Tools → Disk health): overall level, temperature, power-on time, wear and the ATA attribute table. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation*, plus a log in `%LocalAppData%\FreePartition\operations.log`. |
 
-Not implemented yet: move partition, clone disk, MBR ↔ GPT conversion. See the [Roadmap](#roadmap).
+Not implemented yet: clone disk, MBR ↔ GPT conversion. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -133,6 +133,13 @@ The guarantees the code is built around:
 - Formatting or changing the drive letter of the **Windows drive** is blocked.
 - PowerShell scripts are generated only from validated values (drive letter, numeric size,
   file system from a closed list, label with restricted characters) — no command injection.
+- **Move partition is the one exception to "nothing is written outside the PowerShell cmdlets"**, because Windows
+  has no cmdlet that changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
+  only inside the partition's own space plus free space of the same disk (the table is checked first, and the drive
+  letter must be exactly the selected partition), with the volume locked and unmounted. If the partition table
+  cannot be updated after the copy, the data is copied back. **If the power fails or the computer is turned off
+  while it runs, the data on that partition is corrupted** — the app says so before and when applying, and it
+  cannot be canceled once the copy has started.
 - The queue stops at the first failure; the remaining operations stay pending.
 - **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
@@ -143,7 +150,8 @@ The guarantees the code is built around:
 FreePartition.slnx                     # the solution
 Directory.Build.props                  # TargetFramework and shared options
 src/FreePartition.Core/                # all logic, no UI, testable without a real disk
-  Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models
+  Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models,
+               DriveLayout + SectorCopier + PhysicalDiskMover (move partition)
   Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
   Operations/  DiskOperation (+ types), OperationQueue, PowerShellExecutor, OperationLog
   Util/        ByteFormatter
@@ -176,13 +184,13 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - [x] Recovery chance estimate
 - [x] Always recover to another disk
 - [x] Filter by name
-- [ ] Filters by type, size and date; preview before recovering
+- [x] Filters by type, size and date; preview before recovering (image, text or hex dump)
 - [ ] File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
 - [ ] Recover lost partitions
 - [x] Explicit TRIM warning on SSD
 
 **Advanced (high risk — needs heavy VM/VHD testing)**
-- [ ] Move partition
+- [x] Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
 - [ ] Clone partition
 - [ ] Convert MBR ↔ GPT without data loss
 - [ ] Migrate Windows to another SSD/HDD
@@ -196,6 +204,10 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - Alternate data streams (ADS) are ignored.
 - The sequence number of the parent reference is not validated — paths of reused folders may be wrong.
 - On SSDs with TRIM, deleted data has usually already been discarded by the controller.
+- Move partition: same disk only, MBR (without extended partitions) and GPT, 4 KB-aligned partitions, and the
+  partition needs a drive letter. You drag the partition inside the free space touching it (before and/or after), in steps of 1 MiB.
+  Boot-sector "hidden sectors" are not rewritten, so the app asks for confirmation when the partition is marked
+  Boot, Active, Page File or Crash Dump, and refuses the Windows drive outright.
 - The partition "Type" column only shows Primary / EFI / Other: WMI does not distinguish logical partitions.
 - The UI is code-behind (no MVVM yet).
 

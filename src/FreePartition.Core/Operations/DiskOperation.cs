@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using FreePartition.Core.Disks;
 using FreePartition.Core.Util;
 
 namespace FreePartition.Core.Operations;
@@ -27,10 +28,21 @@ public abstract record DiskOperation
 
     public string RiskText => Destructive ? "Destructive" : "Safe";
 
+    /// <summary>Extra warning the user must see before applying (e.g. what happens if the power fails).</summary>
+    public virtual string? Warning => null;
+
     /// <exception cref="ArgumentException">Invalid parameters.</exception>
     public abstract void Validate();
 
     public abstract string GenerateScript();
+
+    /// <summary>
+    /// Runs the operation. By default that is the generated script; an operation that cannot be a PowerShell
+    /// script (the raw copy of a move) overrides this and does its work in-process.
+    /// </summary>
+    public virtual Task<CommandResult> RunAsync(
+        ICommandExecutor executor, string script, IProgress<string>? progress, CancellationToken ct) =>
+        executor.ExecuteAsync(script, ct);
 
     /// <summary>
     /// Assigns the drive letter only after the new partition is formatted: with a letter on a RAW volume Windows
@@ -473,5 +485,70 @@ public sealed record SplitPartition(
                $"$n = New-Partition -DiskNumber $k.DiskNumber -Offset $off -Size $size; " +
                $"Format-Volume -Partition $n -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false; " +
                AssignLetter(Letter);
+    }
+}
+
+/// <summary>
+/// Moves a partition to another position on the same disk, into free space (before or after it). The sectors are
+/// copied in place and the partition table is then rewritten with the new start. This is NOT a PowerShell script:
+/// Windows has no cmdlet that changes a partition's offset, so <see cref="RunAsync"/> uses an <see cref="IPartitionMover"/>.
+/// Unlike every other operation, interrupting it midway (power loss, crash, unplugging) corrupts the data.
+/// </summary>
+public sealed record MovePartition(
+    int DiskNumber, int PartitionNumber, char Drive, long SourceOffsetBytes, long SizeBytes, long NewOffsetBytes,
+    IPartitionMover? Mover = null) : DiskOperation
+{
+    public const string PowerLossWarning =
+        "If the power fails or the computer is turned off while the partition is being moved, the data on it will be " +
+        "CORRUPTED and cannot be recovered. Back up the files first, keep the computer plugged in (laptops on AC power, " +
+        "desktops on a UPS if possible) and do not unplug the disk until the move has finished. It cannot be canceled once started.";
+
+    public override string Description =>
+        $"Move {char.ToUpperInvariant(Drive)}: on disk {DiskNumber} from {ByteFormatter.Format(SourceOffsetBytes)} " +
+        $"to {ByteFormatter.Format(NewOffsetBytes)} — DATA IS LOST IF INTERRUPTED";
+
+    public override bool Destructive => true;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+    public override string? Warning => PowerLossWarning;
+
+    public override void Validate()
+    {
+        NormalizeLetter(Drive);
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (PartitionNumber < 1)
+            throw new ArgumentException("Invalid partition number.");
+        if (SizeBytes <= 0 || SourceOffsetBytes < 0 || NewOffsetBytes < 0)
+            throw new ArgumentException("Invalid partition position.");
+        if (NewOffsetBytes == SourceOffsetBytes)
+            throw new ArgumentException("The partition is already at that position.");
+        if (SourceOffsetBytes % DriveLayout.Alignment != 0 || SizeBytes % DriveLayout.Alignment != 0
+            || NewOffsetBytes % DriveLayout.Alignment != 0)
+            throw new ArgumentException("The partition and its destination must be aligned to 4 KB.");
+        if (NewOffsetBytes < DriveLayout.FirstUsableOffset)
+            throw new ArgumentException("The destination must be after the first 1 MB of the disk.");
+    }
+
+    /// <summary>Shown in simulation mode: there is no PowerShell here, so this only describes what would happen.</summary>
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"# Not PowerShell (raw copy in the app): lock and dismount {NormalizeLetter(Drive)}:, copy {SizeBytes} bytes " +
+               $"from offset {SourceOffsetBytes} to offset {NewOffsetBytes} on PhysicalDrive{DiskNumber}, " +
+               $"then set the start of partition {PartitionNumber} to {NewOffsetBytes}";
+    }
+
+    public override async Task<CommandResult> RunAsync(
+        ICommandExecutor executor, string script, IProgress<string>? progress, CancellationToken ct)
+    {
+        Validate();
+        ct.ThrowIfCancellationRequested();   // the last point where canceling is still safe
+
+        var request = new PartitionMoveRequest(DiskNumber, PartitionNumber, NormalizeLetter(Drive),
+            SourceOffsetBytes, SizeBytes, NewOffsetBytes);
+        var mover = Mover ?? new PhysicalDiskMover();
+        await Task.Run(() => mover.Move(request, progress), CancellationToken.None);
+        return new CommandResult(0, $"Partition moved to {ByteFormatter.Format(NewOffsetBytes)}.", "");
     }
 }

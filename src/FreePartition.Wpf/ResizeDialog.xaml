@@ -10,6 +10,11 @@
 
         <local:PartitionBar x:Name="Bar" />
 
+        <Border x:Name="LimitNote" Visibility="Collapsed" Background="#FFF4CE" BorderBrush="#E0B84C"
+                BorderThickness="1" Padding="10" Margin="0,12,0,0">
+            <TextBlock x:Name="TxtLimit" TextWrapping="Wrap" />
+        </Border>
+
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
             <TextBlock Text="New size:" VerticalAlignment="Center" />
             <local:SizeInput x:Name="InputSize" Width="170" Margin="8,0,0,0" />
