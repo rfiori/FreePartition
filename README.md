@@ -159,7 +159,7 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - [x] Shrink and extend partition
 - [x] Change drive letter and label
 - [x] Create and delete partition
-- [ ] Initialize disk (MBR/GPT)
+- [x] Initialize disk (MBR/GPT)
 - [x] Set active partition, hide/show
 - [x] Disk health (S.M.A.R.T.)
 

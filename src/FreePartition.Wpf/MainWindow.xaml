@@ -309,6 +309,13 @@
                                 <TextBlock Text="Create partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpInitialize" Style="{StaticResource OperationItem}" Click="OpInitialize_Click"
+                                ToolTip="Initialize the selected blank disk as MBR or GPT">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9F5;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Initialize disk" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpDelete" Style="{StaticResource OperationItem}" Click="OpDelete_Click"
                                 ToolTip="Erases all data on the partition">
                             <StackPanel Orientation="Horizontal">

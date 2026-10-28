@@ -158,6 +158,39 @@ public sealed record ChangeDriveLetter(char Current, char New) : DiskOperation
     }
 }
 
+public enum DiskPartitionStyle
+{
+    MBR,
+    GPT
+}
+
+/// <summary>
+/// Initializes a blank (RAW) disk with an MBR or GPT partition table. The script refuses to touch a disk
+/// that is already initialized, so existing partitions can never be lost through this operation.
+/// </summary>
+public sealed record InitializeDisk(int DiskNumber, DiskPartitionStyle Style) : DiskOperation
+{
+    public override string Description => $"Initialize disk {DiskNumber} as {Style}";
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives => Array.Empty<char>();
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (!Enum.IsDefined(Style))
+            throw new ArgumentException("Invalid partition style. Use MBR or GPT.");
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"if ((Get-Disk -Number {DiskNumber}).PartitionStyle -ne 'RAW') {{ throw 'Disk {DiskNumber} is already initialized.' }}; " +
+               $"Initialize-Disk -Number {DiskNumber} -PartitionStyle {Style}";
+    }
+}
+
 /// <summary>
 /// Creates a partition in the unallocated space of a disk and formats it.
 /// Without a size, uses all the remaining space. Without a letter, Windows picks one.

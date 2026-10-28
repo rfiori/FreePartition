@@ -63,6 +63,24 @@ public class OperationQueueTests
     }
 
 
+    // ---------- initialize disk ----------
+
+    [Fact]
+    public void InitializeDisk_GeneratesScript_ThatRefusesInitializedDisks()
+    {
+        string script = new InitializeDisk(3, DiskPartitionStyle.GPT).GenerateScript();
+        Assert.Contains("(Get-Disk -Number 3).PartitionStyle -ne 'RAW'", script);
+        Assert.EndsWith("Initialize-Disk -Number 3 -PartitionStyle GPT", script);
+        Assert.EndsWith("-PartitionStyle MBR", new InitializeDisk(0, DiskPartitionStyle.MBR).GenerateScript());
+    }
+
+    [Fact]
+    public void InitializeDisk_InvalidParameters_AreRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new InitializeDisk(-1, DiskPartitionStyle.GPT).Validate());
+        Assert.Throws<ArgumentException>(() => new InitializeDisk(1, (DiskPartitionStyle)99).Validate());
+    }
+
     // ---------- create / delete partition ----------
 
     [Fact]

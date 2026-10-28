@@ -18,7 +18,7 @@ public sealed record PartitionRow(
     string Disk, string Name, string FileSystem, string Capacity, string Used,
     string Unused, string State, string Type,
     char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
-    int PartitionNumber = 0, bool Gpt = false);
+    int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false);
 
 /// <summary>A disk with its rows, for the graphical map.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows);
@@ -121,7 +121,7 @@ public partial class MainWindow : Window
         foreach (var partition in disk.Partitions)
         {
             if (partition.Offset > cursor && partition.Offset - cursor >= UnallocatedThreshold)
-                rows.Add(UnallocatedRow(title, disk.Index, partition.Offset - cursor));
+                rows.Add(UnallocatedRow(title, disk.Index, partition.Offset - cursor, false));
 
             string type = TranslateType(partition.Type, gpt);
             string state = StatusText(disk.Status, partition.Details);
@@ -150,14 +150,14 @@ public partial class MainWindow : Window
         }
 
         if (disk.Size > cursor && disk.Size - cursor >= UnallocatedThreshold)
-            rows.Add(UnallocatedRow(title, disk.Index, disk.Size - cursor));
+            rows.Add(UnallocatedRow(title, disk.Index, disk.Size - cursor, disk.PartitionStyle == "Uninitialized"));
 
         return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows);
     }
 
-    private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong size) =>
+    private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong size, bool uninitialized) =>
         new(disk, "*", "Unallocated", ByteFormatter.Format(size), "0 B", ByteFormatter.Format(size),
-            "None", "", null, null, size, 0, true, diskIndex);
+            "None", "", null, null, size, 0, true, diskIndex, Uninitialized: uninitialized);
 
     /// <summary>"120 GB (33%)": the size followed by its share of the volume.</summary>
     private static string WithPercent(ulong bytes, ulong total) =>
@@ -282,7 +282,7 @@ public partial class MainWindow : Window
     private ContextMenu BuildContextMenu()
     {
         var menu = new ContextMenu();
-        var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
+        var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpInitialize, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
         foreach (var button in buttons)
         {
             var texts = ((StackPanel)button.Content).Children.OfType<TextBlock>().ToList();
@@ -323,7 +323,8 @@ public partial class MainWindow : Window
         OpLetter.IsEnabled = hasLetter;
         OpFormat.IsEnabled = hasLetter;
         OpDelete.IsEnabled = hasLetter;
-        OpCreate.IsEnabled = Selected is { Unallocated: true };
+        OpCreate.IsEnabled = Selected is { Unallocated: true, Uninitialized: false };
+        OpInitialize.IsEnabled = Selected is { Unallocated: true, Uninitialized: true };
         OpCheck.IsEnabled = hasLetter;
         OpActive.IsEnabled = Selected is { Unallocated: false, Letter: not null, Gpt: false, PartitionNumber: > 0 };
         OpHide.IsEnabled = hasLetter;
@@ -415,7 +416,7 @@ public partial class MainWindow : Window
 
     private void OpCreate_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { Unallocated: true } free) return;
+        if (Selected is not { Unallocated: true, Uninitialized: false } free) return;
 
         var dialog = new ParametersDialog("Create partition",
             $"Disk {free.DiskIndex} — free space: {free.Capacity}",
@@ -438,6 +439,27 @@ public partial class MainWindow : Window
             _queue.Add(new CreatePartition(free.DiskIndex, ConvertFileSystem(v[1]), v[2], size, letter));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void OpInitialize_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: true, Uninitialized: true } row) return;
+
+        var dialog = new ParametersDialog("Initialize disk",
+            $"Disk {row.DiskIndex} — {row.Capacity}. Only blank disks can be initialized.",
+            [new DialogField("Partition style:", nameof(DiskPartitionStyle.GPT), Enum.GetNames<DiskPartitionStyle>())]) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            if (!Enum.TryParse(dialog.Values[0], ignoreCase: true, out DiskPartitionStyle style))
+                throw new ArgumentException("Enter the partition style: MBR or GPT.");
+            _queue.Add(new InitializeDisk(row.DiskIndex, style));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }

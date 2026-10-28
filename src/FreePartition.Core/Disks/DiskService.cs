@@ -14,6 +14,7 @@ public static class DiskService
         var volumesByPartition = MapVolumes();
         var files = FindSystemFiles();
         var ssdDisks = FindSsdDisks();
+        var styles = FindPartitionStyles();
 
         using var diskSearcher = new ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive");
         foreach (var obj in diskSearcher.Get())
@@ -23,10 +24,12 @@ public static class DiskService
             int index = Convert.ToInt32(disk["Index"] ?? 0);
             var partitions = ListPartitions(index, volumesByPartition, files);
 
-            // Win32_DiskPartition.Type starts with "GPT:" on GPT disks.
-            string style = partitions.Count == 0
-                ? "Uninitialized"
-                : partitions.Any(p => p.Type.StartsWith("GPT", StringComparison.OrdinalIgnoreCase)) ? "GPT" : "MBR";
+            // The Storage stack knows the real style (an initialized disk can have no partitions);
+            // without it, infer from the partitions: Win32_DiskPartition.Type starts with "GPT:" on GPT disks.
+            string style = styles.TryGetValue(index, out var known) ? known
+                : partitions.Count == 0
+                    ? "Uninitialized"
+                    : partitions.Any(p => p.Type.StartsWith("GPT", StringComparison.OrdinalIgnoreCase)) ? "GPT" : "MBR";
 
             result.Add(new DiskInfo(
                 Index: index,
@@ -148,6 +151,36 @@ public static class DiskService
             };
         }
         return mbrType is null ? null : "Primary Partition";
+    }
+
+    /// <summary>Partition style per disk number (MSFT_Disk.PartitionStyle: 0 = RAW, 1 = MBR, 2 = GPT; best effort).</summary>
+    private static Dictionary<int, string> FindPartitionStyles()
+    {
+        var styles = new Dictionary<int, string>();
+        try
+        {
+            var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
+            using var searcher = new ManagementObjectSearcher(scope,
+                new ObjectQuery("SELECT Number, PartitionStyle FROM MSFT_Disk"));
+            foreach (var obj in searcher.Get())
+            {
+                using var disk = (ManagementObject)obj;
+                string? style = Convert.ToInt32(disk["PartitionStyle"] ?? 0) switch
+                {
+                    0 => "Uninitialized",
+                    1 => "MBR",
+                    2 => "GPT",
+                    _ => null
+                };
+                if (style is not null && int.TryParse(Text(disk["Number"]), out int number))
+                    styles[number] = style;
+            }
+        }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException or FormatException)
+        {
+            styles.Clear();
+        }
+        return styles;
     }
 
     /// <summary>Numbers of the physical disks that are SSDs (MSFT_PhysicalDisk.MediaType 4; best effort).</summary>
