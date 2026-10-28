@@ -1,29 +1,18 @@
 <Window x:Class="FreePartition.Wpf.ResizeDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FreePartition.Wpf"
         Title="Resize partition" Width="560" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
     <StackPanel Margin="16">
         <TextBlock x:Name="TxtDescription" FontWeight="SemiBold" Margin="0,0,0,4" />
         <TextBlock Text="Drag the handle to shrink or extend the partition." Foreground="DimGray" Margin="0,0,0,12" />
 
-        <Border BorderBrush="#5B9BD5" BorderThickness="1" Background="#EEEEEE" Height="56">
-            <Canvas x:Name="Bar" Background="Transparent" Cursor="SizeWE"
-                    SizeChanged="Bar_SizeChanged" MouseLeftButtonDown="Bar_MouseDown"
-                    MouseMove="Bar_MouseMove" MouseLeftButtonUp="Bar_MouseUp">
-                <Rectangle x:Name="RectPartition" Fill="#CFE2F3" Height="54" />
-                <Rectangle x:Name="RectUsed" Fill="#5B9BD5" Height="54" />
-                <Rectangle x:Name="Handle" Fill="#2F6FA8" Width="6" Height="54" />
-            </Canvas>
-        </Border>
-        <Grid Margin="0,4,0,0">
-            <TextBlock x:Name="TxtMin" Foreground="DimGray" HorizontalAlignment="Left" />
-            <TextBlock x:Name="TxtMax" Foreground="DimGray" HorizontalAlignment="Right" />
-        </Grid>
+        <local:PartitionBar x:Name="Bar" />
 
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-            <TextBlock Text="New size (GB):" VerticalAlignment="Center" />
-            <TextBox x:Name="TxtSize" Width="100" Margin="8,0,0,0" Padding="2,3" KeyDown="TxtSize_KeyDown" LostFocus="TxtSize_LostFocus" />
+            <TextBlock Text="New size:" VerticalAlignment="Center" />
+            <local:SizeInput x:Name="InputSize" Width="170" Margin="8,0,0,0" />
             <TextBlock x:Name="TxtDelta" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="DimGray" />
         </StackPanel>
 

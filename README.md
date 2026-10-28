@@ -41,7 +41,7 @@
 | --- | --- |
 | **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. |
 | **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree and recreating the original folders. |
-| **Partition operations** | Resize/extend (drag the partition bar), create and delete partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors. Also available from the right-click menu. |
+| **Partition operations** | Resize/extend (drag the partition bar), create, delete, merge and split partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors. Also available from the right-click menu. |
 | **Disk health** | Read-only S.M.A.R.T. report per disk (Tools → Disk health): overall level, temperature, power-on time, wear and the ATA attribute table. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation*, plus a log in `%LocalAppData%\FreePartition\operations.log`. |
 
@@ -166,7 +166,7 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 **Intermediate**
 - [x] Pending-operations queue (Apply/Undo)
 - [x] Operations log
-- [ ] Merge and split partitions
+- [x] Merge and split partitions
 - [ ] Convert FAT32 ↔ NTFS without data loss
 - [x] Check for errors (`chkdsk`; scan or repair)
 - [ ] Securely wipe a disk / 4K alignment for SSD
@@ -182,7 +182,8 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - [x] Explicit TRIM warning on SSD
 
 **Advanced (high risk — needs heavy VM/VHD testing)**
-- [ ] Move partition, clone partition or disk
+- [ ] Move partition
+- [ ] Clone partition
 - [ ] Convert MBR ↔ GPT without data loss
 - [ ] Migrate Windows to another SSD/HDD
 - [ ] Rebuild MBR/BCD, bootable media (WinPE)

@@ -1,7 +1,7 @@
 <Window x:Class="FreePartition.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="FreePartition" Height="720" Width="1180" MinHeight="520" MinWidth="900"
+        Icon="Assets/app.ico" Title="FreePartition" Height="720" Width="1180" MinHeight="520" MinWidth="900"
         WindowStartupLocation="CenterScreen" Background="White" Loaded="Window_Loaded">
 
     <Window.Resources>
@@ -281,6 +281,20 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE740;" Foreground="{StaticResource Accent}" />
                                 <TextBlock Text="Resize partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpMerge" Style="{StaticResource OperationItem}" Click="OpMerge_Click"
+                                ToolTip="Merge the selected partition into the one right before it (its files are kept in a folder)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8B5;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Merge partitions" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpSplit" Style="{StaticResource OperationItem}" Click="OpSplit_Click"
+                                ToolTip="Split the selected partition in two, using its free space">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8A1;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Split partition" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="OpLabel" Style="{StaticResource OperationItem}" Click="OpLabel_Click">

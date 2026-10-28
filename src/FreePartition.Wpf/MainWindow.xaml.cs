@@ -18,7 +18,7 @@ public sealed record PartitionRow(
     string Disk, string Name, string FileSystem, string Capacity, string Used,
     string Unused, string State, string Type,
     char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
-    int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false);
+    int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0);
 
 /// <summary>A disk with its rows, for the graphical map.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows);
@@ -121,7 +121,7 @@ public partial class MainWindow : Window
         foreach (var partition in disk.Partitions)
         {
             if (partition.Offset > cursor && partition.Offset - cursor >= UnallocatedThreshold)
-                rows.Add(UnallocatedRow(title, disk.Index, partition.Offset - cursor, false));
+                rows.Add(UnallocatedRow(title, disk.Index, cursor, partition.Offset - cursor, false));
 
             string type = TranslateType(partition.Type, gpt);
             string state = StatusText(disk.Status, partition.Details);
@@ -150,14 +150,14 @@ public partial class MainWindow : Window
         }
 
         if (disk.Size > cursor && disk.Size - cursor >= UnallocatedThreshold)
-            rows.Add(UnallocatedRow(title, disk.Index, disk.Size - cursor, disk.PartitionStyle == "Uninitialized"));
+            rows.Add(UnallocatedRow(title, disk.Index, cursor, disk.Size - cursor, disk.PartitionStyle == "Uninitialized"));
 
         return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows);
     }
 
-    private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong size, bool uninitialized) =>
+    private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong offset, ulong size, bool uninitialized) =>
         new(disk, "*", "Unallocated", ByteFormatter.Format(size), "0 B", ByteFormatter.Format(size),
-            "None", "", null, null, size, 0, true, diskIndex, Uninitialized: uninitialized);
+            "None", "", null, null, size, 0, true, diskIndex, Uninitialized: uninitialized, Offset: offset);
 
     /// <summary>"120 GB (33%)": the size followed by its share of the volume.</summary>
     private static string WithPercent(ulong bytes, ulong total) =>
@@ -282,7 +282,7 @@ public partial class MainWindow : Window
     private ContextMenu BuildContextMenu()
     {
         var menu = new ContextMenu();
-        var buttons = new[] { OpResize, OpLabel, OpLetter, OpFormat, OpCreate, OpInitialize, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
+        var buttons = new[] { OpResize, OpMerge, OpSplit, OpLabel, OpLetter, OpFormat, OpCreate, OpInitialize, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
         foreach (var button in buttons)
         {
             var texts = ((StackPanel)button.Content).Children.OfType<TextBlock>().ToList();
@@ -319,6 +319,8 @@ public partial class MainWindow : Window
     {
         bool hasLetter = Selected is { Unallocated: false, Letter: not null };
         OpResize.IsEnabled = hasLetter;
+        OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
+        OpSplit.IsEnabled = hasLetter;
         OpLabel.IsEnabled = hasLetter;
         OpLetter.IsEnabled = hasLetter;
         OpFormat.IsEnabled = hasLetter;
@@ -372,6 +374,99 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>The partition right before the selected one on the same disk, if it has a drive letter.</summary>
+    private PartitionRow? PreviousNeighbor()
+    {
+        if (Selected is not { Unallocated: false } row) return null;
+        var rows = DisksGrid.Items.OfType<PartitionRow>().ToList();
+        int at = rows.IndexOf(row);
+        return at > 0 && rows[at - 1] is { Unallocated: false, Letter: not null } prev && prev.DiskIndex == row.DiskIndex ? prev : null;
+    }
+
+    private void OpMerge_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: false, Letter: { } source } row || PreviousNeighbor() is not { Letter: { } target } prev) return;
+
+        ulong free = prev.Size > prev.UsedBytes ? prev.Size - prev.UsedBytes : 0;
+        ulong needed = MergePartitions.RequiredFreeBytes(row.UsedBytes);
+        if (free < needed)
+        {
+            MessageBox.Show(this,
+                $"The files of {source}: ({ByteFormatter.Format(row.UsedBytes)}) do not fit in {target}:. " +
+                $"{target}: needs {ByteFormatter.Format(needed)} free (5% plus 64 MB of slack) but has {ByteFormatter.Format(free)}.\n\n" +
+                $"Free up space on {target}: or on {source}: and try again.",
+                "Merge partitions", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new ParametersDialog("Merge partitions",
+            $"Merge {source}: into {target}: — the files of {source}: are copied to {target}:\\Merged_{source}, " +
+            $"then {source}: is deleted and {target}: is extended. {target}: needs {ByteFormatter.Format(needed)} free " +
+            $"(has {ByteFormatter.Format(free)}).", []) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            _queue.Add(new MergePartitions(source, target));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void OpSplit_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: false, Letter: { } letter } row) return;
+
+        ulong min = row.UsedBytes;
+        Cursor = Cursors.Wait;
+        SetBusy(true);
+        try
+        {
+            if (await SupportedSize.QueryAsync(letter, new PowerShellExecutor()) is { } limits)
+                min = (ulong)limits.MinBytes;
+        }
+        finally
+        {
+            Cursor = null;
+            SetBusy(false);
+        }
+
+        ulong room = row.Size > min ? row.Size - min : 0;
+        if (room < 2UL * 1024 * 1024)
+        {
+            MessageBox.Show(this, $"{letter}: has no free space to split off.", "Split partition", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new ParametersDialog("Split partition",
+            $"Drive {letter}: — at most {ByteFormatter.Format(room)} can go to the new partition. The files stay on {letter}:.",
+            [new DialogField("New partition size:", IsSize: true, MaxBytes: (long)room,
+                             BarTotal: (long)row.Size, BarUsed: (long)min, Reversed: true),
+             new DialogField("File system:", "NTFS", Enum.GetNames<FileSystemFormat>()),
+             new DialogField("Label:"),
+             LetterField("Drive letter:", AutomaticLetter)]) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var v = dialog.Values;
+            long size = ConvertBytes(v[0]) ?? throw new FormatException("Enter the size of the new partition.");
+            if ((ulong)size > room)
+                throw new ArgumentException($"The new partition can have at most {ByteFormatter.Format(room)}.");
+            char? newLetter = v[3].Length == 1 ? char.ToUpperInvariant(v[3][0]) : null;
+            if (newLetter is not null && DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == newLetter))
+                throw new ArgumentException($"Drive letter {newLetter}: is already in use.");
+
+            _queue.Add(new SplitPartition(letter, size, ConvertFileSystem(v[1]), v[2], newLetter));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private void OpLabel_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Change label",
             [new DialogField("New label:", Selected?.Label ?? "")],
@@ -420,7 +515,7 @@ public partial class MainWindow : Window
 
         var dialog = new ParametersDialog("Create partition",
             $"Disk {free.DiskIndex} — free space: {free.Capacity}",
-            [new DialogField("Size (GB, empty = all free space):"),
+            [new DialogField("Size (empty = all free space):", IsSize: true, MaxBytes: (long)free.Size, BarTotal: (long)free.Size),
              new DialogField("File system:", "NTFS", Enum.GetNames<FileSystemFormat>()),
              new DialogField("Label:"),
              LetterField("Drive letter:", AutomaticLetter)]) { Owner = this };
@@ -429,14 +524,15 @@ public partial class MainWindow : Window
         try
         {
             var v = dialog.Values;
-            long? size = ConvertGbToBytes(v[0]);
+            long? size = ConvertBytes(v[0]);
             if (size is { } bytes && (ulong)bytes > free.Size)
                 throw new ArgumentException($"The size exceeds the free space ({free.Capacity}).");
+            if (size is { } all && (ulong)all == free.Size) size = null;   // dragged to the end: use all free space
             char? letter = v[3].Length == 1 ? char.ToUpperInvariant(v[3][0]) : null;   // "(automatic)" = no letter
             if (letter is not null && DisksGrid.Items.OfType<PartitionRow>().Any(r => r.Letter == letter))
                 throw new ArgumentException($"Drive letter {letter}: is already in use.");
 
-            _queue.Add(new CreatePartition(free.DiskIndex, ConvertFileSystem(v[1]), v[2], size, letter));
+            _queue.Add(new CreatePartition(free.DiskIndex, ConvertFileSystem(v[1]), v[2], size, letter, (long)free.Offset, (long)free.Size));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
         {
@@ -549,13 +645,9 @@ public partial class MainWindow : Window
             "Properties", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private static long? ConvertGbToBytes(string text)
-    {
-        if (text.Length == 0) return null;   // empty = extend to the maximum
-        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.CurrentCulture, out var gb) || gb <= 0)
-            throw new FormatException("Invalid size. Use a number in GB (e.g. 120 or 120.5).");
-        return (long)(gb * 1024m * 1024m * 1024m);
-    }
+    /// <summary>Parses a size field (bytes, invariant culture); empty = extend to the maximum.</summary>
+    private static long? ConvertBytes(string text) =>
+        text.Length == 0 ? null : long.Parse(text, CultureInfo.InvariantCulture);
 
     private static FileSystemFormat ConvertFileSystem(string text)
     {

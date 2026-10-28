@@ -7,9 +7,11 @@
     <AssemblyName>FreePartition</AssemblyName>
     <!-- The app needs administrator rights to open the raw volume (\\.\C:) -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
+    <Resource Include="Assets/app.ico" />
     <ProjectReference Include="..\FreePartition.Core\FreePartition.Core.csproj" />
   </ItemGroup>
 
