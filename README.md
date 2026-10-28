@@ -39,13 +39,13 @@
 
 | Area | Feature |
 | --- | --- |
-| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
-| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex) of the selected file. |
-| **Partition operations** | Resize/extend (drag the partition bar), create, delete, merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors. Also available from the right-click menu. |
-| **Disk health** | Read-only S.M.A.R.T. report per disk (Tools → Disk health): overall level, temperature, power-on time, wear and the ATA attribute table. |
-| **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation*, plus a log in `%LocalAppData%\FreePartition\operations.log`. |
+| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, and tells SSDs from HDDs. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
+| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
+| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair). Also available from the right-click menu. |
+| **Disk health** | Read-only report per disk (Tools → Disk health): overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
+| **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation* (simulation is on by default), plus a log in `%LocalAppData%\FreePartition\operations.log` that you can show in the app or open from the Tools menu. |
 
-Not implemented yet: clone disk, MBR ↔ GPT conversion. See the [Roadmap](#roadmap).
+Not implemented yet: FAT32 ↔ NTFS conversion, secure wipe, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
