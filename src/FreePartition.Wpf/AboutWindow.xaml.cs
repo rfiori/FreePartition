@@ -30,8 +30,7 @@ public partial class AboutWindow : Window
         TxtRuntime.Text = RuntimeInformation.FrameworkDescription;
         TxtOs.Text = $"{RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})";
         TxtElevation.Text = IsElevated() ? "Administrator" : "Standard user — disk operations will fail";
-        TxtCopyright.Text = $"Copyright (c) 2026 Ricardo F M. FreePartition is an independent project "
-                            + "and is not affiliated with EaseUS.";
+        TxtCopyright.Text = $"Copyright (c) 2026 Ricardo F M. FreePartition is an independent project ";
 
         string? folder = Path.GetDirectoryName(FileLog.DefaultPath);
         if (folder is not null) LinkLog.NavigateUri = new Uri(folder);

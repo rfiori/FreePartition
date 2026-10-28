@@ -63,17 +63,49 @@ public class OperationQueueTests
     }
 
 
+    // ---------- initialize disk ----------
+
+    [Fact]
+    public void InitializeDisk_GeneratesScript_ThatRefusesInitializedDisks()
+    {
+        string script = new InitializeDisk(3, DiskPartitionStyle.GPT).GenerateScript();
+        Assert.Contains("(Get-Disk -Number 3).PartitionStyle -ne 'RAW'", script);
+        Assert.EndsWith("Initialize-Disk -Number 3 -PartitionStyle GPT", script);
+        Assert.EndsWith("-PartitionStyle MBR", new InitializeDisk(0, DiskPartitionStyle.MBR).GenerateScript());
+    }
+
+    [Fact]
+    public void InitializeDisk_InvalidParameters_AreRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new InitializeDisk(-1, DiskPartitionStyle.GPT).Validate());
+        Assert.Throws<ArgumentException>(() => new InitializeDisk(1, (DiskPartitionStyle)99).Validate());
+    }
+
     // ---------- create / delete partition ----------
+
+    [Fact]
+    public void CreatePartition_InSelectedGap_UsesOffsetInsideTheGap()
+    {
+        string script = new CreatePartition(2, FileSystemFormat.NTFS, "p3", 180_000_000, null, 1_000_000_000, 326_000_000).GenerateScript();
+
+        Assert.Contains("$o = 1000000000; $e = 1326000000;", script);
+        Assert.Contains("New-Partition -DiskNumber 2 -Offset $off -Size ([math]::Min(180000000, $max));", script);
+        Assert.DoesNotContain("-UseMaximumSize", script);
+        Assert.Throws<ArgumentException>(() => new CreatePartition(2, FileSystemFormat.NTFS, "", null, null, 1000, null).Validate());
+    }
 
     [Fact]
     public void CreatePartition_GeneratesScript()
     {
         var all = new CreatePartition(1, FileSystemFormat.NTFS, "Data").GenerateScript();
-        Assert.Equal("$p = New-Partition -DiskNumber 1 -UseMaximumSize -AssignDriveLetter; " +
-                     "Format-Volume -Partition $p -FileSystem NTFS -NewFileSystemLabel 'Data' -Confirm:$false", all);
+        Assert.Equal("$n = New-Partition -DiskNumber 1 -UseMaximumSize; " +
+                     "Format-Volume -Partition $n -FileSystem NTFS -NewFileSystemLabel 'Data' -Confirm:$false; " +
+                     "$n = Get-Partition -DiskNumber $n.DiskNumber -PartitionNumber $n.PartitionNumber; " +
+                     "Add-PartitionAccessPath -InputObject $n -AssignDriveLetter", all);
 
         var sized = new CreatePartition(2, FileSystemFormat.exFAT, "", 5_000_000_000, 'm').GenerateScript();
-        Assert.Contains("-Size 5000000000 -DriveLetter M;", sized);
+        Assert.Contains("-Size 5000000000;", sized);
+        Assert.EndsWith("Add-PartitionAccessPath -InputObject $n -AccessPath 'M:\'", sized);
     }
 
     [Fact]
@@ -93,6 +125,58 @@ public class OperationQueueTests
         var queue = new OperationQueue(protectedDrive: 'C');
         Assert.Throws<InvalidOperationException>(() => queue.Add(new DeletePartition('c')));
         Assert.Empty(queue.Pending);
+    }
+
+    // ---------- merge / split ----------
+
+    [Fact]
+    public void MergePartitions_CopiesBeforeDeleting_AndExtendsTheTarget()
+    {
+        string script = new MergePartitions('e', 'd').GenerateScript();
+
+        int copy = script.IndexOf("robocopy 'E:\\' $dest", StringComparison.Ordinal);
+        int check = script.IndexOf("$LASTEXITCODE -ge 8", StringComparison.Ordinal);
+        int delete = script.IndexOf("Remove-Partition -DriveLetter E", StringComparison.Ordinal);
+        int extend = script.IndexOf("Resize-Partition -DriveLetter D -Size ([math]::Min($s.Offset + $s.Size - $t.Offset, $max))", StringComparison.Ordinal);
+
+        Assert.Contains("$dest = 'D:\\Merged_E'", script);
+        Assert.True(copy >= 0 && copy < check && check < delete && delete < extend);
+    }
+
+    [Fact]
+    public void MergePartitions_IsRefusedWhenTheSourceIsTheSystemDrive_ButNotTheTarget()
+    {
+        var queue = new OperationQueue(protectedDrive: 'C');
+        Assert.Throws<InvalidOperationException>(() => queue.Add(new MergePartitions('C', 'D')));
+        queue.Add(new MergePartitions('E', 'C'));
+        Assert.Single(queue.Pending);
+    }
+
+    [Fact]
+    public void MergePartitions_WithSameOrInvalidLetters_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new MergePartitions('D', 'd').Validate());
+        Assert.Throws<ArgumentException>(() => new MergePartitions('1', 'D').Validate());
+    }
+
+    [Fact]
+    public void SplitPartition_ShrinksThenCreatesAndFormats()
+    {
+        string script = new SplitPartition('d', 10_000_000_000, FileSystemFormat.NTFS, "Data", 'm').GenerateScript();
+
+        int shrink = script.IndexOf("Resize-Partition -DriveLetter D -Size ([math]::Floor(($p.Size - 10000000000) / 1MB) * 1MB)", StringComparison.Ordinal);
+        int create = script.IndexOf("New-Partition -DiskNumber $k.DiskNumber -Offset $off -Size $size;", StringComparison.Ordinal);
+        int format = script.IndexOf("Format-Volume -Partition $n -FileSystem NTFS -NewFileSystemLabel 'Data'", StringComparison.Ordinal);
+
+        Assert.True(shrink >= 0 && shrink < create && create < format);
+    }
+
+    [Fact]
+    public void SplitPartition_InvalidParameters_AreRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new SplitPartition('D', 1000, FileSystemFormat.NTFS).Validate());
+        Assert.Throws<ArgumentException>(() => new SplitPartition('D', 1L << 30, FileSystemFormat.NTFS, "", 'd').Validate());
+        Assert.Throws<ArgumentException>(() => new SplitPartition('D', 1L << 30, FileSystemFormat.NTFS, "x'; calc; '").Validate());
     }
 
     // ---------- active / hide / show ----------

@@ -102,7 +102,7 @@ public sealed class OperationQueue
             CommandResult result;
             try
             {
-                result = await executor.ExecuteAsync(script, ct);
+                result = await operation.RunAsync(executor, script, progress, ct);
             }
             catch (OperationCanceledException)
             {

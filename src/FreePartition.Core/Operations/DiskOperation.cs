@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using FreePartition.Core.Disks;
 using FreePartition.Core.Util;
 
 namespace FreePartition.Core.Operations;
@@ -27,10 +28,32 @@ public abstract record DiskOperation
 
     public string RiskText => Destructive ? "Destructive" : "Safe";
 
+    /// <summary>Extra warning the user must see before applying (e.g. what happens if the power fails).</summary>
+    public virtual string? Warning => null;
+
     /// <exception cref="ArgumentException">Invalid parameters.</exception>
     public abstract void Validate();
 
     public abstract string GenerateScript();
+
+    /// <summary>
+    /// Runs the operation. By default that is the generated script; an operation that cannot be a PowerShell
+    /// script (the raw copy of a move) overrides this and does its work in-process.
+    /// </summary>
+    public virtual Task<CommandResult> RunAsync(
+        ICommandExecutor executor, string script, IProgress<string>? progress, CancellationToken ct) =>
+        executor.ExecuteAsync(script, ct);
+
+    /// <summary>
+    /// Assigns the drive letter only after the new partition is formatted: with a letter on a RAW volume Windows
+    /// opens an Explorer window that shows "E:\ is not accessible" while the format is still running.
+    /// Expects the new partition in $n.
+    /// </summary>
+    protected static string AssignLetter(char? letter) =>
+        "$n = Get-Partition -DiskNumber $n.DiskNumber -PartitionNumber $n.PartitionNumber; " +
+        (letter is { } l
+            ? $"Add-PartitionAccessPath -InputObject $n -AccessPath '{NormalizeLetter(l)}:\'"
+            : "Add-PartitionAccessPath -InputObject $n -AssignDriveLetter");
 
     protected static char NormalizeLetter(char letter)
     {
@@ -158,13 +181,48 @@ public sealed record ChangeDriveLetter(char Current, char New) : DiskOperation
     }
 }
 
+public enum DiskPartitionStyle
+{
+    MBR,
+    GPT
+}
+
+/// <summary>
+/// Initializes a blank (RAW) disk with an MBR or GPT partition table. The script refuses to touch a disk
+/// that is already initialized, so existing partitions can never be lost through this operation.
+/// </summary>
+public sealed record InitializeDisk(int DiskNumber, DiskPartitionStyle Style) : DiskOperation
+{
+    public override string Description => $"Initialize disk {DiskNumber} as {Style}";
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives => Array.Empty<char>();
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (!Enum.IsDefined(Style))
+            throw new ArgumentException("Invalid partition style. Use MBR or GPT.");
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"if ((Get-Disk -Number {DiskNumber}).PartitionStyle -ne 'RAW') {{ throw 'Disk {DiskNumber} is already initialized.' }}; " +
+               $"Initialize-Disk -Number {DiskNumber} -PartitionStyle {Style}";
+    }
+}
+
 /// <summary>
 /// Creates a partition in the unallocated space of a disk and formats it.
 /// Without a size, uses all the remaining space. Without a letter, Windows picks one.
+/// With <paramref name="GapOffsetBytes"/> and <paramref name="GapSizeBytes"/> the partition is placed inside that
+/// unallocated stretch (the one the user selected) instead of wherever Windows finds room first.
 /// </summary>
 public sealed record CreatePartition(
     int DiskNumber, FileSystemFormat FileSystem, string Label = "",
-    long? SizeBytes = null, char? Letter = null) : DiskOperation
+    long? SizeBytes = null, char? Letter = null, long? GapOffsetBytes = null, long? GapSizeBytes = null) : DiskOperation
 {
     private const long MinimumSize = 1L << 20;   // 1 MiB
 
@@ -188,16 +246,34 @@ public sealed record CreatePartition(
             throw new ArgumentException("Invalid file system. Use NTFS, FAT32 or exFAT.");
         if (SizeBytes is < MinimumSize)
             throw new ArgumentException("The new size must be at least 1 MB.");
+        if (GapOffsetBytes is < 0 || GapSizeBytes is <= 0 || GapOffsetBytes is null != GapSizeBytes is null)
+            throw new ArgumentException("Invalid unallocated stretch.");
         ValidateLabel(Label, FileSystem == FileSystemFormat.FAT32 ? 11 : 32);
     }
 
     public override string GenerateScript()
     {
         Validate();
-        string size = SizeBytes is { } bytes ? $"-Size {bytes}" : "-UseMaximumSize";
-        string letter = Letter is { } l ? $"-DriveLetter {NormalizeLetter(l)}" : "-AssignDriveLetter";
-        return $"$p = New-Partition -DiskNumber {DiskNumber} {size} {letter}; " +
-               $"Format-Volume -Partition $p -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false";
+        string create;
+        if (GapOffsetBytes is { } gapOffset && GapSizeBytes is { } gapSize)
+        {
+            // Earlier queued creations may already occupy the start of the stretch: begin after them,
+            // on a 1 MiB boundary, and never go past the end of the stretch.
+            string size = SizeBytes is { } bytes ? $"([math]::Min({bytes}, $max))" : "$max";
+            create = $"$o = {gapOffset}; $e = {gapOffset + gapSize}; " +
+                     $"foreach ($q in Get-Partition -DiskNumber {DiskNumber}) {{ if ($q.Offset -ge $o -and $q.Offset -lt $e) {{ $o = [math]::Max($o, $q.Offset + $q.Size) }} }}; " +
+                     $"$off = [math]::Ceiling($o / 1MB) * 1MB; $max = [math]::Floor(($e - $off) / 1MB) * 1MB; " +
+                     $"if ($max -lt 1MB) {{ throw 'The selected unallocated space has no room left.' }}; " +
+                     $"$n = New-Partition -DiskNumber {DiskNumber} -Offset $off -Size {size}; ";
+        }
+        else
+        {
+            string size = SizeBytes is { } bytes ? $"-Size {bytes}" : "-UseMaximumSize";
+            create = $"$n = New-Partition -DiskNumber {DiskNumber} {size}; ";
+        }
+        return create +
+               $"Format-Volume -Partition $n -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false; " +
+               AssignLetter(Letter);
     }
 }
 
@@ -305,5 +381,174 @@ public sealed record DeletePartition(char Drive) : DiskOperation
     {
         Validate();
         return $"Remove-Partition -DriveLetter {NormalizeLetter(Drive)} -Confirm:$false";
+    }
+}
+
+/// <summary>
+/// Merges a partition into the one right before it on the same disk without losing files: copies everything into
+/// a "Merged_X" folder on the target, deletes the source and extends the target by exactly the size of the source (other free space is left alone).
+/// The script stops before deleting anything if the partitions are not adjacent, the files do not fit or the copy fails.
+/// </summary>
+public sealed record MergePartitions(char Source, char Target) : DiskOperation
+{
+    public override string Description =>
+        $"Merge {char.ToUpperInvariant(Source)}: into {char.ToUpperInvariant(Target)}: " +
+        $"(files go to {char.ToUpperInvariant(Target)}:\\Merged_{char.ToUpperInvariant(Source)}, then {char.ToUpperInvariant(Source)}: is deleted)";
+
+    /// <summary>Free space the target needs to take the files of a source that uses <paramref name="sourceUsedBytes"/> (5% plus 64 MB of slack). Same rule as the generated script.</summary>
+    public static ulong RequiredFreeBytes(ulong sourceUsedBytes) => (ulong)(sourceUsedBytes * 1.05) + (64UL << 20);
+
+    public override bool Destructive => true;
+    public override bool ForbiddenOnSystemDrive => true;
+
+    // Only the source is listed: it is the one that disappears. Extending the Windows drive is allowed.
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Source) };
+
+    public override void Validate()
+    {
+        char s = NormalizeLetter(Source);
+        char t = NormalizeLetter(Target);
+        if (s == t)
+            throw new ArgumentException("The source and the target must be different partitions.");
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        char s = NormalizeLetter(Source);
+        char t = NormalizeLetter(Target);
+        return $"$s = Get-Partition -DriveLetter {s}; $t = Get-Partition -DriveLetter {t}; " +
+               $"if ($s.DiskNumber -ne $t.DiskNumber) {{ throw 'The partitions are on different disks.' }}; " +
+               $"if ($s.Offset -le $t.Offset -or @(Get-Partition -DiskNumber $t.DiskNumber | Where-Object {{ $_.Offset -gt $t.Offset -and $_.Offset -lt $s.Offset }}).Count -gt 0) " +
+               $"{{ throw '{s}: must come right after {t}: on the disk.' }}; " +
+               $"$sv = Get-Volume -DriveLetter {s}; $tv = Get-Volume -DriveLetter {t}; " +
+               $"if ($tv.SizeRemaining -lt (($sv.Size - $sv.SizeRemaining) * 1.05 + 64MB)) {{ throw 'The files of {s}: do not fit in the free space of {t}:.' }}; " +
+               $"$dest = '{t}:\\Merged_{s}'; if (Test-Path $dest) {{ throw \"$dest already exists.\" }}; " +
+               $"robocopy '{s}:\\' $dest /E /COPYALL /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XD '{s}:\\System Volume Information' '{s}:\\$RECYCLE.BIN' | Out-Null; " +
+               $"if ($LASTEXITCODE -ge 8) {{ throw \"Copy failed (robocopy code $LASTEXITCODE). Nothing was deleted.\" }}; " +
+               // The root of a volume is Hidden+System and robocopy copies that to the destination folder, hiding it in Explorer.
+               $"(Get-Item -LiteralPath $dest -Force).Attributes = 'Directory'; " +
+               // Verify before deleting: the copy must have the same number of files and bytes as the source.
+               $"$ex = '{s}:\\System Volume Information', '{s}:\\$RECYCLE.BIN'; " +
+               $"$src = Get-ChildItem -LiteralPath '{s}:\\' -Recurse -Force -File -ErrorAction SilentlyContinue | Where-Object {{ $f = $_.FullName; -not ($ex | Where-Object {{ $f.StartsWith($_ + '\\', [StringComparison]::OrdinalIgnoreCase) }}) }} | Measure-Object Length -Sum; " +
+               $"$dst = Get-ChildItem -LiteralPath $dest -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum; " +
+               $"if ($src.Count -ne $dst.Count -or $src.Sum -ne $dst.Sum) {{ throw \"Verification failed: source has $($src.Count) files ($($src.Sum) bytes), copy has $($dst.Count) ($($dst.Sum) bytes). Nothing was deleted.\" }}; " +
+               $"Remove-Partition -DriveLetter {s} -Confirm:$false; " +
+               $"$max = (Get-PartitionSupportedSize -DriveLetter {t}).SizeMax; " +
+               $"Resize-Partition -DriveLetter {t} -Size ([math]::Min($s.Offset + $s.Size - $t.Offset, $max))";
+    }
+}
+
+/// <summary>
+/// Splits a partition in two: shrinks it and creates a new, formatted partition in the freed space at its end.
+/// The files stay on the original partition.
+/// </summary>
+public sealed record SplitPartition(
+    char Drive, long NewPartitionBytes, FileSystemFormat FileSystem, string Label = "", char? Letter = null) : DiskOperation
+{
+    private const long MinimumSize = 1L << 20;   // 1 MiB
+
+    public override string Description =>
+        $"Split {char.ToUpperInvariant(Drive)}: — new {ByteFormatter.Format(NewPartitionBytes)} {FileSystem} partition" +
+        (Letter is { } l ? $" (letter {char.ToUpperInvariant(l)}:)" : "") +
+        (string.IsNullOrEmpty(Label) ? "" : $" (label \"{Label}\")");
+
+    public override bool Destructive => true;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives =>
+        Letter is { } l ? new[] { char.ToUpperInvariant(Drive), char.ToUpperInvariant(l) } : new[] { char.ToUpperInvariant(Drive) };
+
+    public override void Validate()
+    {
+        NormalizeLetter(Drive);
+        if (Letter is { } l && NormalizeLetter(l) == NormalizeLetter(Drive))
+            throw new ArgumentException("The new partition needs a different drive letter.");
+        if (NewPartitionBytes < MinimumSize)
+            throw new ArgumentException("The new partition must be at least 1 MB.");
+        if (!Enum.IsDefined(FileSystem))
+            throw new ArgumentException("Invalid file system. Use NTFS, FAT32 or exFAT.");
+        ValidateLabel(Label, FileSystem == FileSystemFormat.FAT32 ? 11 : 32);
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        char d = NormalizeLetter(Drive);
+        // New-Partition rejects offsets that are not 1 MiB aligned, so the original partition is shrunk to a whole
+        // number of MiB (its start is aligned) and the offset is rounded up as a safety net.
+        return $"$p = Get-Partition -DriveLetter {d}; $end = $p.Offset + $p.Size; " +
+               $"if ({NewPartitionBytes} -ge $p.Size) {{ throw 'The new partition must be smaller than {d}:.' }}; " +
+               $"Resize-Partition -DriveLetter {d} -Size ([math]::Floor(($p.Size - {NewPartitionBytes}) / 1MB) * 1MB); " +
+               $"$k = Get-Partition -DriveLetter {d}; $off = [math]::Ceiling(($k.Offset + $k.Size) / 1MB) * 1MB; " +
+               $"$size = [math]::Floor(($end - $off) / 1MB) * 1MB; " +
+               $"if ($size -lt 1MB) {{ throw 'Not enough space was freed for the new partition.' }}; " +
+               $"$n = New-Partition -DiskNumber $k.DiskNumber -Offset $off -Size $size; " +
+               $"Format-Volume -Partition $n -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false; " +
+               AssignLetter(Letter);
+    }
+}
+
+/// <summary>
+/// Moves a partition to another position on the same disk, into free space (before or after it). The sectors are
+/// copied in place and the partition table is then rewritten with the new start. This is NOT a PowerShell script:
+/// Windows has no cmdlet that changes a partition's offset, so <see cref="RunAsync"/> uses an <see cref="IPartitionMover"/>.
+/// Unlike every other operation, interrupting it midway (power loss, crash, unplugging) corrupts the data.
+/// </summary>
+public sealed record MovePartition(
+    int DiskNumber, int PartitionNumber, char Drive, long SourceOffsetBytes, long SizeBytes, long NewOffsetBytes,
+    IPartitionMover? Mover = null) : DiskOperation
+{
+    public const string PowerLossWarning =
+        "If the power fails or the computer is turned off while the partition is being moved, the data on it will be " +
+        "CORRUPTED and cannot be recovered. Back up the files first, keep the computer plugged in (laptops on AC power, " +
+        "desktops on a UPS if possible) and do not unplug the disk until the move has finished. It cannot be canceled once started.";
+
+    public override string Description =>
+        $"Move {char.ToUpperInvariant(Drive)}: on disk {DiskNumber} from {ByteFormatter.Format(SourceOffsetBytes)} " +
+        $"to {ByteFormatter.Format(NewOffsetBytes)} — DATA IS LOST IF INTERRUPTED";
+
+    public override bool Destructive => true;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+    public override string? Warning => PowerLossWarning;
+
+    public override void Validate()
+    {
+        NormalizeLetter(Drive);
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (PartitionNumber < 1)
+            throw new ArgumentException("Invalid partition number.");
+        if (SizeBytes <= 0 || SourceOffsetBytes < 0 || NewOffsetBytes < 0)
+            throw new ArgumentException("Invalid partition position.");
+        if (NewOffsetBytes == SourceOffsetBytes)
+            throw new ArgumentException("The partition is already at that position.");
+        if (SourceOffsetBytes % DriveLayout.Alignment != 0 || SizeBytes % DriveLayout.Alignment != 0
+            || NewOffsetBytes % DriveLayout.Alignment != 0)
+            throw new ArgumentException("The partition and its destination must be aligned to 4 KB.");
+        if (NewOffsetBytes < DriveLayout.FirstUsableOffset)
+            throw new ArgumentException("The destination must be after the first 1 MB of the disk.");
+    }
+
+    /// <summary>Shown in simulation mode: there is no PowerShell here, so this only describes what would happen.</summary>
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"# Not PowerShell (raw copy in the app): lock and dismount {NormalizeLetter(Drive)}:, copy {SizeBytes} bytes " +
+               $"from offset {SourceOffsetBytes} to offset {NewOffsetBytes} on PhysicalDrive{DiskNumber}, " +
+               $"then set the start of partition {PartitionNumber} to {NewOffsetBytes}";
+    }
+
+    public override async Task<CommandResult> RunAsync(
+        ICommandExecutor executor, string script, IProgress<string>? progress, CancellationToken ct)
+    {
+        Validate();
+        ct.ThrowIfCancellationRequested();   // the last point where canceling is still safe
+
+        var request = new PartitionMoveRequest(DiskNumber, PartitionNumber, NormalizeLetter(Drive),
+            SourceOffsetBytes, SizeBytes, NewOffsetBytes);
+        var mover = Mover ?? new PhysicalDiskMover();
+        await Task.Run(() => mover.Move(request, progress), CancellationToken.None);
+        return new CommandResult(0, $"Partition moved to {ByteFormatter.Format(NewOffsetBytes)}.", "");
     }
 }

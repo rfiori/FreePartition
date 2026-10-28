@@ -1,7 +1,4 @@
-using System.Globalization;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
 using FreePartition.Core.Util;
 
 namespace FreePartition.Wpf;
@@ -10,13 +7,12 @@ namespace FreePartition.Wpf;
 public partial class ResizeDialog : Window
 {
     private const long Granularity = 1L << 20;   // 1 MiB
-    private const double GiB = 1024.0 * 1024 * 1024;
+    private const long UnmovableNoteThreshold = 1L << 30;   // 1 GiB between the files and Windows' minimum
 
     private readonly long _current;
     private readonly long _used;
     private readonly long _max;
     private long _size;
-    private bool _dragging;
 
     /// <summary>The chosen size in bytes, or null to extend to the maximum available.</summary>
     public long? NewSizeBytes => _size >= _max && _max > _current ? null : _size;
@@ -26,70 +22,57 @@ public partial class ResizeDialog : Window
 
     /// <param name="used">Smallest allowed size (space already in use).</param>
     /// <param name="max">Largest allowed size (the partition plus the free space right after it).</param>
-    public ResizeDialog(char drive, ulong current, ulong used, ulong max)
+    /// <param name="dataBytes">Space really used by files, drawn in the bar. Defaults to <paramref name="used"/>.
+    /// When it is well below <paramref name="used"/>, the dialog explains why Windows will not shrink further.</param>
+    public ResizeDialog(char drive, ulong current, ulong used, ulong max, ulong? dataBytes = null)
     {
         InitializeComponent();
         _current = (long)current;
         _max = Math.Max((long)max, _current);
         _used = Math.Min((long)used, _current);
         _size = _current;
+        long data = Math.Min((long)(dataBytes ?? used), _current);
 
         TxtDescription.Text = $"Drive {drive}: — current size {ByteFormatter.Format(current)}";
-        TxtMin.Text = $"Min {ByteFormatter.Format((ulong)_used)}";
-        TxtMax.Text = $"Max {ByteFormatter.Format((ulong)_max)}";
+
+        // Windows' minimum can be far above the files' size: unmovable files block shrinking past them.
+        if (_used - data > UnmovableNoteThreshold)
+        {
+            TxtLimit.Text =
+                $"Windows allows shrinking {drive}: by only {ByteFormatter.Format(_current - _used)}, even though " +
+                $"{ByteFormatter.Format(_current - data)} is free. Files Windows cannot move (page file, hibernation " +
+                "file, System Restore snapshots, the MFT) sit near the end of the partition.\n\n" +
+                "To free more, temporarily turn off hibernation (powercfg /h off), the page file and System Restore " +
+                "for this drive, restart, and try again.";
+            LimitNote.Visibility = Visibility.Visible;
+        }
+
+        Bar.Total = _max;
+        Bar.Used = data;
+        Bar.Minimum = _used;
+        Bar.Maximum = _max;
+        Bar.ValueChanged += (_, _) => SetSize(Bar.Value);
+        InputSize.Minimum = Math.Max(_used, Granularity);
+        InputSize.Maximum = _max;
+        InputSize.BytesChanged += (_, _) =>
+        {
+            if (InputSize.Bytes is { } bytes) SetSize(bytes);
+        };
         UpdateAll(updateText: true);
-    }
-
-    private void Bar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateAll(updateText: false);
-
-    private void Bar_MouseDown(object sender, MouseButtonEventArgs e)
-    {
-        _dragging = Bar.CaptureMouse();
-        SetFromPosition(e.GetPosition(Bar).X);
-    }
-
-    private void Bar_MouseMove(object sender, MouseEventArgs e)
-    {
-        if (_dragging) SetFromPosition(e.GetPosition(Bar).X);
-    }
-
-    private void Bar_MouseUp(object sender, MouseButtonEventArgs e)
-    {
-        _dragging = false;
-        Bar.ReleaseMouseCapture();
-    }
-
-    private void SetFromPosition(double x)
-    {
-        if (Bar.ActualWidth <= 0 || _max <= 0) return;
-        double bytes = Math.Clamp(x / Bar.ActualWidth, 0, 1) * _max;
-        SetSize((long)bytes);
     }
 
     private void SetSize(long bytes)
     {
-        // Snap to whole MiB, but let the ends of the range be exact.
-        bytes = Math.Clamp(bytes, _used, _max);
-        if (bytes != _used && bytes != _max)
-            bytes = bytes / Granularity * Granularity;
         _size = Math.Clamp(bytes, _used, _max);
         UpdateAll(updateText: true);
     }
 
     private void UpdateAll(bool updateText)
     {
-        double width = Bar.ActualWidth;
-        if (width > 0 && _max > 0)
-        {
-            double partitionWidth = (double)_size / _max * width;
-            double usedWidth = (double)_used / _max * width;
-            RectPartition.Width = partitionWidth;
-            RectUsed.Width = Math.Min(usedWidth, partitionWidth);
-            Canvas.SetLeft(Handle, Math.Clamp(partitionWidth - Handle.Width / 2, 0, Math.Max(0, width - Handle.Width)));
-        }
+        Bar.Value = _size;
 
         if (updateText)
-            TxtSize.Text = (_size / GiB).ToString("0.##", CultureInfo.CurrentCulture);
+            InputSize.Bytes = _size;
 
         long delta = _size - _current;
         TxtDelta.Text = delta == 0 ? "No change"
@@ -97,28 +80,8 @@ public partial class ResizeDialog : Window
             : $"Shrink by {ByteFormatter.Format((ulong)-delta)}";
     }
 
-    private void ApplyTypedSize()
-    {
-        if (decimal.TryParse(TxtSize.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out var gb) && gb > 0)
-            SetSize((long)(gb * (decimal)GiB));
-        else
-            UpdateAll(updateText: true);
-    }
-
-    private void TxtSize_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter)
-        {
-            ApplyTypedSize();
-            e.Handled = true;   // do not trigger the default button before the value is applied
-        }
-    }
-
-    private void TxtSize_LostFocus(object sender, RoutedEventArgs e) => ApplyTypedSize();
-
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
-        ApplyTypedSize();
         if (!Changed)
         {
             MessageBox.Show(this, "The size was not changed.", "Resize partition");

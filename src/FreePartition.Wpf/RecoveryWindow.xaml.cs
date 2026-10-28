@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using FreePartition.Core.Disks;
 using FreePartition.Core.Ntfs;
+using FreePartition.Core.Util;
 using Microsoft.Win32;
 
 namespace FreePartition.Wpf;
@@ -18,6 +19,10 @@ public partial class RecoveryWindow : Window
     public RecoveryWindow(char? initialDrive = null)
     {
         InitializeComponent();
+        CmbCategory.ItemsSource = Enum.GetValues<FileCategory>();
+        CmbCategory.SelectedIndex = 0;
+        CmbMinUnit.ItemsSource = CmbMaxUnit.ItemsSource = SizeUnits.Select(u => u.Name).ToList();
+        CmbMinUnit.SelectedIndex = CmbMaxUnit.SelectedIndex = 1;   // MB
         LoadDrives(initialDrive);
         _ = LoadMediaTypesAsync();
     }
@@ -138,13 +143,11 @@ public partial class RecoveryWindow : Window
     {
         if (_result is null) return;
 
-        string filter = TxtFilter.Text.Trim();
-        var files = filter.Length == 0
-            ? _result.Files
-            : _result.Files.Where(f => f.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        var filter = BuildFilter();
+        var files = filter.Apply(_result.Files);
 
         var root = FolderNode.Build(files);
-        FilesTree.ItemsSource = TreeNode.Build(root, expandAll: filter.Length > 0,
+        FilesTree.ItemsSource = TreeNode.Build(root, expandAll: !filter.IsEmpty,
             isChecked: f => _checked.Contains(f.MftRecordNumber),
             onFileChecked: (f, isChecked) =>
             {
@@ -160,6 +163,115 @@ public partial class RecoveryWindow : Window
     }
 
     private void TxtFilter_TextChanged(object sender, TextChangedEventArgs e) => RebuildTree();
+
+    private void Filter_Changed(object sender, EventArgs e) => RebuildTree();
+
+    private void BtnClearFilters_Click(object sender, RoutedEventArgs e)
+    {
+        TxtFilter.Clear();
+        TxtMinSize.Clear();
+        TxtMaxSize.Clear();
+        CmbCategory.SelectedIndex = 0;
+        DateFrom.SelectedDate = null;
+        DateTo.SelectedDate = null;
+        RebuildTree();
+    }
+
+    private static readonly (string Name, long Bytes)[] SizeUnits = [("KB", 1L << 10), ("MB", 1L << 20), ("GB", 1L << 30)];
+
+    private RecoveryFilter BuildFilter() => new()
+    {
+        NameContains = TxtFilter.Text.Trim(),
+        Category = CmbCategory.SelectedItem is FileCategory category ? category : FileCategory.All,
+        MinSize = ParseSize(TxtMinSize.Text, CmbMinUnit.SelectedIndex),
+        MaxSize = ParseSize(TxtMaxSize.Text, CmbMaxUnit.SelectedIndex),
+        ModifiedFrom = DateFrom.SelectedDate,
+        ModifiedTo = DateTo.SelectedDate
+    };
+
+    /// <summary>Size in bytes, or null when the box is empty or not a valid number.</summary>
+    private static long? ParseSize(string text, int unitIndex)
+    {
+        if (unitIndex < 0 || !decimal.TryParse(text.Trim(), System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.CurrentCulture, out var value) || value < 0)
+            return null;
+        return (long)(value * SizeUnits[unitIndex].Bytes);
+    }
+
+    private int _previewVersion;
+
+    private async void FilesTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        int version = ++_previewVersion;
+        ClearPreview();
+
+        var result = _result;
+        if (result is null || e.NewValue is not TreeNode { File: { } file }) return;
+
+        if (!file.IsRecoverable)
+        {
+            TxtPreviewInfo.Text = "No preview: the file is compressed, encrypted or has no data.";
+            return;
+        }
+
+        TxtPreviewInfo.Text = "Loading preview...";
+        try
+        {
+            var preview = await Task.Run(() => FilePreviewReader.Read(result, file));
+            if (version != _previewVersion) return;   // another file was selected meanwhile
+
+            ShowPreview(preview, file);
+        }
+        catch (Exception ex)
+        {
+            if (version == _previewVersion) TxtPreviewInfo.Text = $"Preview failed: {ex.Message}";
+        }
+    }
+
+    private void ShowPreview(FilePreview preview, DeletedFile file)
+    {
+        string note = file.Chance is RecoveryChance.Low
+            ? " The clusters may have been overwritten, so the content can be wrong."
+            : "";
+
+        if (preview.Kind == PreviewKind.Image)
+        {
+            try
+            {
+                using var stream = new MemoryStream(preview.Data);
+                var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bitmap.StreamSource = stream;
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                ImgPreview.Source = bitmap;
+                ImgPreview.Visibility = Visibility.Visible;
+                TxtPreviewInfo.Text = $"{bitmap.PixelWidth} x {bitmap.PixelHeight} px.{note}";
+                return;
+            }
+            catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or FileFormatException)
+            {
+                // Damaged image: show the raw bytes instead.
+                preview = preview with { Kind = PreviewKind.Hex, Text = FilePreviewReader.FormatHex(preview.Data.AsSpan(0, Math.Min(preview.Data.Length, FilePreviewReader.MaxHexBytes))) };
+                note = " The image could not be decoded (damaged or overwritten)." + note;
+            }
+        }
+
+        TxtPreview.Text = preview.Text;
+        TxtPreview.Visibility = Visibility.Visible;
+        TxtPreviewInfo.Text = (preview.Truncated ? $"Showing the first {ByteFormatter.Format(preview.Data.Length)}." : "") + note;
+    }
+
+    private void ClearPreview()
+    {
+        ImgPreview.Source = null;
+        ImgPreview.Visibility = Visibility.Collapsed;
+        TxtPreview.Clear();
+        TxtPreview.Visibility = Visibility.Collapsed;
+        TxtPreviewInfo.Text = "";
+    }
 
     private async void BtnRecover_Click(object sender, RoutedEventArgs e)
     {
