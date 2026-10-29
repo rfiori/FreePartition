@@ -13,6 +13,7 @@ public partial class RecoveryWindow : Window
 {
     private CancellationTokenSource? _cts;
     private bool _busy;
+    private bool _recovering;
     private ScanResult? _result;
     private readonly HashSet<long> _checked = new();   // MFT record numbers of the checked files
 
@@ -56,6 +57,22 @@ public partial class RecoveryWindow : Window
     private void UpdateTrimWarning() =>
         TrimWarning.Visibility = CmbDrives.SelectedItem is string drive && _ssdDrives.Contains(drive)
             ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>A scan can be interrupted after a confirmation; copying recovered files cannot, so closing waits for it.</summary>
+    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_recovering)
+        {
+            MessageBox.Show(this, "Files are being recovered. Wait until the recovery finishes before closing this window.",
+                "Recovery in progress", MessageBoxButton.OK, MessageBoxImage.Information);
+            e.Cancel = true;
+        }
+        else if (_busy && MessageBox.Show(this, "A scan is running. Stop it and close this window?",
+                     "Scan in progress", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            e.Cancel = true;
+        }
+    }
 
     private void Window_Closed(object? sender, EventArgs e)
     {
@@ -289,7 +306,7 @@ public partial class RecoveryWindow : Window
         if (dialog.ShowDialog(this) != true) return;
         string destination = dialog.FolderName;
 
-        _busy = true;
+        _busy = _recovering = true;
         UpdateRecoverButton();
         TxtFileStatus.Text = $"Recovering {selected.Count} file(s)...";
 
@@ -313,7 +330,7 @@ public partial class RecoveryWindow : Window
             }
         });
 
-        _busy = false;
+        _busy = _recovering = false;
         UpdateRecoverButton();
         TxtFileStatus.Text = $"{recovered} file(s) recovered to {destination}.";
 
