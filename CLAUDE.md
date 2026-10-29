@@ -8,6 +8,8 @@ structure, safety guarantees, roadmap and known limitations. Do not duplicate an
 **US English for everything in the repository**: identifiers, comments, UI labels and messages,
 log messages, tests, docs and commit messages. Never add Portuguese text anywhere.
 (The user chats in Portuguese; the code stays in English.)
+The one exception is the translated privacy policies in `docs/privacy/` (Spanish and
+Brazilian Portuguese) — keep them, and keep all three versions in sync when one changes.
 
 ## Non-obvious decisions — do not "fix" these
 

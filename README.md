@@ -1,15 +1,25 @@
 <h1 align="center">FreePartition</h1>
 
 <p align="center">
-  A free disk partition manager for Windows, with NTFS deleted-file recovery.<br>
-  Built in C# / .NET and WPF, inspired by EaseUS Partition Master.
+  <b>Free, open-source disk management for Windows.</b><br>
+  Manage partitions, check disk health and recover deleted NTFS files, all in one app.
+</p>
+
+<p align="center">
+  Create, resize, move, merge, split and format partitions with a visual disk map and a
+  review-then-apply queue, so nothing touches your disk until you confirm.<br>
+  Read-only SMART and NVMe health reports, and a deleted-file scanner that recovers to another
+  drive, never the one you are scanning.<br>
+  Built with C# / .NET and WPF, inspired by the best disk managers available.
 </p>
 
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D6">
   <img alt="Target" src="https://img.shields.io/badge/.NET-10.0--windows-512BD4">
   <img alt="UI" src="https://img.shields.io/badge/UI-WPF-blue">
-  <img alt="Status" src="https://img.shields.io/badge/status-alpha-orange">
+  <a href="https://github.com/rfiori/FreePartition/releases"><img alt="Release" src="https://img.shields.io/github/v/release/rfiori/FreePartition?include_prereleases"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/rfiori/FreePartition"></a>
+  <a href="https://github.com/rfiori/FreePartition/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/rfiori/FreePartition/total"></a>
 </p>
 
 > [!WARNING]
@@ -26,6 +36,7 @@
 - [Screenshots](#screenshots)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
+- [Releases](#releases)
 - [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
 - [How recovery works](#how-recovery-works)
 - [Safety](#safety)
@@ -41,16 +52,21 @@
 | --- | --- |
 | **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, and tells SSDs from HDDs. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
 | **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
-| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair). Also available from the right-click menu. |
+| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair), convert FAT32 ↔ NTFS keeping the files. Also available from the right-click menu. |
 | **Disk health** | Read-only report per disk (Tools → Disk health): overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation* (simulation is on by default), plus a log in `%LocalAppData%\FreePartition\operations.log` that you can show in the app or open from the Tools menu. |
 
-Not implemented yet: FAT32 ↔ NTFS conversion, secure wipe, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: secure wipe, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
 <img src="docs/screenshots/main-window.webp" alt="FreePartition main window" width="100%">
-<img src="docs/screenshots/main-window_disk_health.webp" alt="FreePartition Disk Health" width="33%">
+<img src="docs/screenshots/create_partition.webp" alt="FreePartition Create Partition" width="32%">
+<img src="docs/screenshots/move_partition.webp" alt="FreePartition Move Partition" width="32%">
+<img src="docs/screenshots/resize_partition.webp" alt="FreePartition Resize Partition" width="32%">
+<img src="docs/screenshots/split_partiion.webp" alt="FreePartition Split Partition" width="32%">
+<img src="docs/screenshots/recover_delete_files.webp" alt="FreePartition Recover Delete files" width="32%">
+<img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="32%">
 
 ## Requirements
 
@@ -90,6 +106,18 @@ dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.
 ```
 
 </details>
+
+## Releases
+
+Pushing a tag such as `v0.0.5` runs [the release workflow](.github/workflows/release.yml): it runs
+the tests (a failure blocks the release), publishes two builds and attaches them to a GitHub
+release with a `SHA256SUMS.txt` file.
+
+- `FreePartition-<version>-win-x64.zip` — small, needs the .NET Desktop Runtime installed.
+- `FreePartition-<version>-win-x64-self-contained.zip` — larger, runs without installing .NET.
+
+Verify a download with `Get-FileHash <file>.zip -Algorithm SHA256` and compare it to `SHA256SUMS.txt`.
+The builds are not code-signed yet, so Windows SmartScreen may warn on first run.
 
 ## How to try it safely (test VHD)
 
@@ -153,7 +181,7 @@ src/FreePartition.Core/                # all logic, no UI, testable without a re
   Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models,
                DriveLayout + SectorCopier + PhysicalDiskMover (move partition)
   Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
-  Operations/  DiskOperation (+ types), OperationQueue, PowerShellExecutor, OperationLog
+  Operations/  DiskOperation (+ types), ConvertVolume (FAT32 ↔ NTFS), OperationQueue, PowerShellExecutor, OperationLog
   Util/        ByteFormatter
 src/FreePartition.Wpf/                 # WPF UI (app.manifest: requireAdministrator)
 tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fake executor)
@@ -162,39 +190,39 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 ## Roadmap
 
 **Basic**
-- [x] List disks, partitions and volumes
-- [x] Format (NTFS, FAT32, exFAT)
-- [x] Shrink and extend partition
-- [x] Change drive letter and label
-- [x] Create and delete partition
-- [x] Initialize disk (MBR/GPT)
-- [x] Set active partition, hide/show
-- [x] Disk health (S.M.A.R.T.)
+- ✅ List disks, partitions and volumes
+- ✅ Format (NTFS, FAT32, exFAT)
+- ✅ Shrink and extend partition
+- ✅ Change drive letter and label
+- ✅ Create and delete partition
+- ✅ Initialize disk (MBR/GPT)
+- ✅ Set active partition, hide/show
+- ✅ Disk health (S.M.A.R.T.)
 
 **Intermediate**
-- [x] Pending-operations queue (Apply/Undo)
-- [x] Operations log
-- [x] Merge and split partitions
-- [ ] Convert FAT32 ↔ NTFS without data loss
-- [x] Check for errors (`chkdsk`; scan or repair)
-- [ ] Securely wipe a disk / 4K alignment for SSD
+- ✅ Pending-operations queue (Apply/Undo)
+- ✅ Operations log
+- ✅ Merge and split partitions
+- ✅ Convert FAT32 ↔ NTFS without data loss (not yet run on a real disk; test on a VHD first)
+- ✅ Check for errors (`chkdsk`; scan or repair)
+- ⚪ Securely wipe a disk / 4K alignment for SSD
 
 **Data recovery**
-- [x] Find deleted files (MFT scan, NTFS)
-- [x] Recovery chance estimate
-- [x] Always recover to another disk
-- [x] Filter by name
-- [x] Filters by type, size and date; preview before recovering (image, text or hex dump)
-- [ ] File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
-- [ ] Recover lost partitions
-- [x] Explicit TRIM warning on SSD
+- ✅ Find deleted files (MFT scan, NTFS)
+- ✅ Recovery chance estimate
+- ✅ Always recover to another disk
+- ✅ Filter by name
+- ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
+- ⚪ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
+- ⚪ Recover lost partitions
+- ✅ Explicit TRIM warning on SSD
 
 **Advanced (high risk — needs heavy VM/VHD testing)**
-- [x] Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
-- [ ] Clone partition
-- [ ] Convert MBR ↔ GPT without data loss
-- [ ] Migrate Windows to another SSD/HDD
-- [ ] Rebuild MBR/BCD, bootable media (WinPE)
+- ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
+- ⚪ Clone partition
+- ⚪ Convert MBR ↔ GPT without data loss
+- ⚪ Migrate Windows to another SSD/HDD
+- ⚪ Rebuild MBR/BCD, bootable media (WinPE)
 
 ## Known limitations
 
@@ -208,6 +236,12 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
   partition needs a drive letter. You drag the partition inside the free space touching it (before and/or after), in steps of 1 MiB.
   Boot-sector "hidden sectors" are not rewritten, so the app asks for confirmation when the partition is marked
   Boot, Active, Page File or Crash Dump, and refuses the Windows drive outright.
+- Convert FAT32 ↔ NTFS: FAT32 → NTFS runs Windows' in-place `convert.exe`. NTFS → FAT32 has no in-place tool, so the
+  files are copied to another drive, verified (file count and bytes), the volume is formatted and the files are copied
+  back and verified again; the copy is deleted only then. It needs free space on another drive, refuses volumes over
+  32 GB (the Windows FAT32 format limit) and files of 4 GB or more, and FAT32 loses NTFS permissions, compression,
+  encryption, alternate data streams and hard links. Never on the Windows drive. If the power fails after the format
+  starts, the files are in `\FreePartition_Convert_<drive>` on the staging drive.
 - The partition "Type" column only shows Primary / EFI / Other: WMI does not distinguish logical partitions.
 - The UI is code-behind (no MVVM yet).
 
@@ -226,5 +260,8 @@ Issues and pull requests are welcome.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Privacy policy: [English](docs/privacy/PRIVACY.md) · [Español](docs/privacy/PRIVACY.es.md) ·
+[Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data and makes no network connections.
 
 FreePartition is an independent project and is not affiliated with EaseUS.

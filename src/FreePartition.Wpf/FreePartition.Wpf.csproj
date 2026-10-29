@@ -8,7 +8,23 @@
     <!-- The app needs administrator rights to open the raw volume (\\.\C:) -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
+    <Title>FreePartition</Title>
+    <Authors>Ricardo F M - @rfiori</Authors>
+    <Description>Free, open-source disk management for Windows.
+Manage partitions, check disk health and recover deleted NTFS files, all in one app.</Description>
+    <Copyright>FreePartition</Copyright>
+    <PackageProjectUrl>https://github.com/rfiori/FreePartition</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/rfiori/FreePartition</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets/app.ico" />

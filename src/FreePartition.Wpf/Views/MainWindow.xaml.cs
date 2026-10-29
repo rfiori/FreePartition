@@ -290,7 +290,7 @@ public partial class MainWindow : Window
     private ContextMenu BuildContextMenu()
     {
         var menu = new ContextMenu();
-        var buttons = new[] { OpResize, OpMerge, OpSplit, OpMove, OpLabel, OpLetter, OpFormat, OpCreate, OpInitialize, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
+        var buttons = new[] { OpResize, OpMerge, OpSplit, OpMove, OpLabel, OpLetter, OpFormat, OpConvert, OpCreate, OpInitialize, OpDelete, OpCheck, OpActive, OpHide, OpShow, OpExplore, OpProperties };
         foreach (var button in buttons)
         {
             var texts = ((StackPanel)button.Content).Children.OfType<TextBlock>().ToList();
@@ -333,6 +333,7 @@ public partial class MainWindow : Window
         OpLabel.IsEnabled = hasLetter;
         OpLetter.IsEnabled = hasLetter;
         OpFormat.IsEnabled = hasLetter;
+        OpConvert.IsEnabled = hasLetter && Selected is { FileSystem: "FAT32" or "NTFS" };
         OpDelete.IsEnabled = hasLetter;
         OpCreate.IsEnabled = Selected is { Unallocated: true, Uninitialized: false };
         OpInitialize.IsEnabled = Selected is { Unallocated: true, Uninitialized: true };
@@ -627,6 +628,63 @@ public partial class MainWindow : Window
              new DialogField("Label:", Selected?.Label ?? "")],
             (letter, v) => new FormatVolume(letter, ConvertFileSystem(v[0]), v[1]),
             "Formatting ERASES all data on the drive.");
+
+    private void OpConvert_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { Unallocated: false, Letter: { } letter, FileSystem: "FAT32" or "NTFS" } row) return;
+
+        const string title = "Convert FAT32 / NTFS";
+        if (row.FileSystem == "FAT32")
+        {
+            var toNtfs = new ParametersDialog(title,
+                $"Convert {letter}: from FAT32 to NTFS in place — the files are kept. {ConvertVolume.ToNtfsWarning}", []) { Owner = this };
+            if (toNtfs.ShowDialog() == true)
+                TryQueue(new ConvertVolume(letter, FileSystemFormat.NTFS));
+            return;
+        }
+
+        if (row.Size > (ulong)ConvertVolume.MaxFat32VolumeBytes)
+        {
+            MessageBox.Show(this,
+                $"{letter}: is {ByteFormatter.Format(row.Size)}. Windows formats FAT32 volumes only up to 32 GB, " +
+                "so this volume cannot be converted.", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        ulong needed = ConvertVolume.RequiredStagingBytes(row.UsedBytes);
+        var candidates = DisksGrid.Items.OfType<PartitionRow>()
+            .Where(r => r is { Unallocated: false, Letter: not null } && r.Letter != letter
+                        && r.Size > r.UsedBytes && r.Size - r.UsedBytes >= needed)
+            .Select(r => r.Letter!.Value.ToString())
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            MessageBox.Show(this,
+                $"Converting {letter}: to FAT32 copies its files ({ByteFormatter.Format(row.UsedBytes)}) to another drive " +
+                $"first, which needs {ByteFormatter.Format(needed)} free (5% plus 64 MB of slack). No other drive has that much free space.",
+                title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var toFat32 = new ParametersDialog(title,
+            $"Convert {letter}: from NTFS to FAT32. {ConvertVolume.ToFat32Warning}",
+            [new DialogField("Staging drive (needs " + ByteFormatter.Format(needed) + " free):", "", candidates)]) { Owner = this };
+        if (toFat32.ShowDialog() != true) return;
+
+        TryQueue(new ConvertVolume(letter, FileSystemFormat.FAT32, toFat32.Values[0][0]));
+    }
+
+    private void TryQueue(DiskOperation operation)
+    {
+        try
+        {
+            _queue.Add(operation);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 
     private void OpCreate_Click(object sender, RoutedEventArgs e)
     {
@@ -933,8 +991,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool _operationsRunning;
+
+    /// <summary>Closing the app while the queue runs could leave a disk half-changed (a move cannot be canceled).</summary>
+    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!_operationsRunning) return;
+
+        MessageBox.Show(this, "Disk operations are running. Wait until they finish (or cancel them) before closing FreePartition.",
+            "Operations in progress", MessageBoxButton.OK, MessageBoxImage.Warning);
+        e.Cancel = true;
+    }
+
     private void ToggleOperations(bool running)
     {
+        _operationsRunning = running;
         BtnApplyOperations.IsEnabled = !running;
         BtnUndo.IsEnabled = !running;
         BtnClearQueue.IsEnabled = !running;
