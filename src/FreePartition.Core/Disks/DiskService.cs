@@ -22,7 +22,7 @@ public static class DiskService
             using var disk = (ManagementObject)obj;
 
             int index = Convert.ToInt32(disk["Index"] ?? 0);
-            var partitions = ListPartitions(index, volumesByPartition, files);
+            var partitions = ListPartitions(index, volumesByPartition, files, out var reserved);
 
             // The Storage stack knows the real style (an initialized disk can have no partitions);
             // without it, infer from the partitions: Win32_DiskPartition.Type starts with "GPT:" on GPT disks.
@@ -40,7 +40,8 @@ public static class DiskService
                 Status: Text(disk["Status"]),
                 PartitionStyle: style,
                 Partitions: partitions,
-                IsSsd: ssdDisks.Contains(index)));
+                IsSsd: ssdDisks.Contains(index),
+                Reserved: reserved));
         }
 
         return result.OrderBy(d => d.Index).ToList();
@@ -48,7 +49,9 @@ public static class DiskService
 
     // Direct queries (DiskIndex / Win32_LogicalDiskToPartition) instead of ASSOCIATORS OF,
     // which fails with "Not found" on some systems because of DeviceID escaping.
-    private static List<PartitionInfo> ListPartitions(int diskIndex, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition, SystemFiles files)
+    private static List<PartitionInfo> ListPartitions(
+        int diskIndex, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition, SystemFiles files,
+        out IReadOnlyList<ReservedRange> reserved)
     {
         var list = new List<PartitionInfo>();
 
@@ -99,6 +102,13 @@ public static class DiskService
                 Details: details));
         }
 
+        // Windows hides the MSR from Win32_DiskPartition, but the Storage stack lists it with its GPT type.
+        var seen = list.Select(p => p.Offset).ToHashSet();
+        reserved = storage.Values
+            .Where(s => s.Kind == "Reserved Partition" && !seen.Contains(s.Offset))
+            .Select(s => new ReservedRange(s.Offset, s.Size))
+            .OrderBy(r => r.Offset).ToList();
+
         return list.OrderBy(p => p.Offset).ToList();
     }
 
@@ -113,13 +123,14 @@ public static class DiskService
         {
             var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
             using var searcher = new ManagementObjectSearcher(scope, new ObjectQuery(
-                "SELECT PartitionNumber, DriveLetter, Offset, IsBoot, IsActive, IsHidden, IsReadOnly, GptType, MbrType " +
+                "SELECT PartitionNumber, DriveLetter, Offset, Size, IsBoot, IsActive, IsHidden, IsReadOnly, GptType, MbrType " +
                 $"FROM MSFT_Partition WHERE DiskNumber = {diskIndex}"));
             foreach (var obj in searcher.Get())
             {
                 using var partition = (ManagementObject)obj;
                 char letter = partition["DriveLetter"] is { } raw ? (char)Convert.ToUInt16(raw) : '\0';
                 map[Number(partition["Offset"])] = new StoragePartition(
+                    Number(partition["Offset"]), Number(partition["Size"]),
                     Convert.ToInt32(partition["PartitionNumber"] ?? 0),
                     char.IsAsciiLetter(letter) ? char.ToUpperInvariant(letter) : null,
                     partition["IsBoot"] is true, partition["IsActive"] is true,
@@ -135,6 +146,7 @@ public static class DiskService
     }
 
     private sealed record StoragePartition(
+        ulong Offset, ulong Size,
         int Number, char? Letter, bool IsBoot, bool IsActive, bool IsHidden, bool IsReadOnly, string? Kind);
 
     private static string? KindOf(string? gptType, object? mbrType)

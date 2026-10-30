@@ -48,27 +48,96 @@
 
 ## What it does
 
+Everything in the **Operations** panel (and the right-click menu, which mirrors it) and the **Tools** menu is listed below. Nothing that changes a disk runs until you click **Apply**.
+
+### Overview
+
 | Area | Feature |
 | --- | --- |
-| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, tells SSDs from HDDs and flags partitions that are not aligned to 4 KB. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
-| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
-| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, align a partition to 1 MB, wipe a partition, a disk or free space, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair), convert FAT32 ↔ NTFS keeping the files. Also available from the right-click menu. |
-| **Verify wipe** | Read-only scan of a whole volume (Inspect → Verify wipe), also on a RAW one: counts the bytes that are not zero, shows where the first one is with a hex dump, and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
-| **Cluster map** | Read-only grid of a whole volume (Inspect → Cluster map), also on a RAW one: each square is classified as zero, data or unreadable from three 4 KB samples, and clicking a square shows its byte range, its NTFS clusters and a hex dump. |
-| **Disk health** | Read-only report per disk (Tools → Disk health): overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
-| **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation* (simulation is on by default), plus a log in `%LocalAppData%\FreePartition\operations.log` that you can show in the app or open from the Tools menu. |
+| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. Tells SSDs from HDDs, flags partitions that are not aligned to 4 KB and draws the hidden Microsoft Reserved (MSR) partition as *Reserved (MSR)* instead of unallocated space. |
+
+
+### Operations
+
+**Inspect** (read-only)
+
+| Operation | What it does |
+| --- | --- |
+| **Explore partition** | Opens the selected partition in Windows Explorer. |
+| **Properties** | Usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
+| **Verify wipe** | Reads a whole volume (also a RAW one) and checks that nothing is left after a wipe: counts the bytes that are not zero, shows where the first one is with a hex dump and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
+| **Cluster map** | Draws a whole volume (also a RAW one) as a grid. Each square is classified as zero, data or unreadable from three 4 KB samples; clicking a square shows its byte range, its NTFS clusters and a hex dump. |
+| **Recover files** | Looks for deleted files on the selected NTFS drive (see below). |
+
+**Create**
+
+| Operation | What it does |
+| --- | --- |
+| **Initialize disk** | Initializes a blank disk as MBR or GPT. |
+| **Create partition** | Creates a partition in the selected unallocated space, formatted as NTFS, FAT32 or exFAT, with a label and drive letter. |
+
+**Size and position**
+
+| Operation | What it does |
+| --- | --- |
+| **Resize partition** | Extends or shrinks the selected partition by dragging the partition bar. |
+| **Move partition** | Moves the partition into free space on the same disk (data is lost if interrupted). |
+| **Align partition** | Moves a partition that is not aligned to 4 KB to the nearest 1 MB boundary (data is lost if interrupted). |
+| **Merge partitions** | Merges the selected partition into the one right before it; its files are kept in a folder. |
+| **Split partition** | Splits the selected partition in two, using its free space, by dragging the bar. The files stay on the original drive. |
+
+**Settings**
+
+| Operation | What it does |
+| --- | --- |
+| **Change label** | Changes the volume label. |
+| **Change letter** | Changes the drive letter. |
+| **Convert FAT32 / NTFS** | Converts the selected partition between FAT32 and NTFS, keeping its files. |
+| **Set active** | Marks the selected MBR partition as active (bootable). |
+| **Hide partition** | Removes the drive letter; the data stays untouched. |
+| **Show partition** | Gives a drive letter to a hidden partition. |
+
+**Maintenance**
+
+| Operation | What it does |
+| --- | --- |
+| **Check for errors** | Checks the selected volume for file system errors with `chkdsk` (scan or repair). |
+
+**Destructive**
+
+| Operation | What it does |
+| --- | --- |
+| **Format partition** | Formats the partition as NTFS, FAT32 or exFAT. Erases all data on it. |
+| **Delete partition** | Deletes the partition. Erases all data on it. |
+| **Wipe free space** | Overwrites the free space of the selected drive so deleted files cannot be recovered. The files are kept. |
+| **Wipe partition** | Overwrites every sector of the selected partition so nothing on it can be recovered. |
+| **Wipe disk** | Deletes every partition of the selected disk and overwrites all of its sectors. |
+
+### Tools
+
+| Tool | What it does |
+| --- | --- |
+| **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
+| **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
 Not implemented yet: SSD firmware Secure Erase, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
 <img src="docs/screenshots/main-window.webp" alt="FreePartition main window" width="100%">
-<img src="docs/screenshots/create_partition.webp" alt="FreePartition Create Partition" width="32%">
-<img src="docs/screenshots/move_partition.webp" alt="FreePartition Move Partition" width="32%">
-<img src="docs/screenshots/resize_partition.webp" alt="FreePartition Resize Partition" width="32%">
-<img src="docs/screenshots/split_partiion.webp" alt="FreePartition Split Partition" width="32%">
-<img src="docs/screenshots/recover_delete_files.webp" alt="FreePartition Recover Delete files" width="32%">
-<img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="32%">
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/create_partition.webp" alt="FreePartition Create Partition" width="100%"></td>
+    <td><img src="docs/screenshots/move_partition.webp" alt="FreePartition Move Partition" width="100%"></td>
+    <td><img src="docs/screenshots/resize_partition.webp" alt="FreePartition Resize Partition" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/split_partiion.webp" alt="FreePartition Split Partition" width="100%"></td>
+    <td><img src="docs/screenshots/recover_delete_files.webp" alt="FreePartition Recover Delete files" width="100%"></td>
+    <td><img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="100%"></td>
+  </tr>
+</table>
 
 ## Requirements
 

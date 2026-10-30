@@ -19,11 +19,7 @@ public sealed class PartitionBar : StackPanel
 
     private readonly Canvas _canvas = new() { Background = Brushes.Transparent, Cursor = Cursors.SizeWE };
     private readonly PartitionBlock _block = new();
-    private readonly TextBlock _newLabel = new()
-    {
-        FontWeight = FontWeights.SemiBold, IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis,
-        Visibility = Visibility.Collapsed
-    };
+    private readonly PartitionBlock _newBlock = new() { Visibility = Visibility.Collapsed };
     private readonly Ellipse _handle = BarVisuals.CreateHandle();
     private readonly SizeBracket _bracket = new();
     private long _total, _used, _minimum, _maximum, _value;
@@ -56,7 +52,8 @@ public sealed class PartitionBar : StackPanel
     {
         Canvas.SetTop(_block, BarVisuals.BlockTop);
         _canvas.Children.Add(_block);
-        _canvas.Children.Add(_newLabel);
+        Canvas.SetTop(_newBlock, BarVisuals.BlockTop);
+        _canvas.Children.Add(_newBlock);
         _canvas.Children.Add(_handle);
         _canvas.SizeChanged += (_, _) => Refresh();
         _canvas.MouseLeftButtonDown += (_, e) =>
@@ -114,14 +111,15 @@ public sealed class PartitionBar : StackPanel
         _block.Subtitle = _reversed ? "Remaining" : "";
         _block.Fraction = blockBytes > 0 ? (double)_used / blockBytes : 0;
 
-        // The part past the handle is free space; in a split it is the new partition, so say how big it is.
-        _newLabel.Visibility = _reversed ? Visibility.Visible : Visibility.Collapsed;
+        // The part past the handle is the new partition of a split, drawn as a yellow block like the other one.
+        _newBlock.Visibility = _reversed ? Visibility.Visible : Visibility.Collapsed;
         if (_reversed)
         {
-            _newLabel.Text = $"New: {ByteFormatter.Format((ulong)Math.Max(0, _value))}";
-            _newLabel.MaxWidth = Math.Max(0, valueWidth - 14);
-            Canvas.SetLeft(_newLabel, edge + 10);
-            Canvas.SetTop(_newLabel, (BarVisuals.TrackHeight - 2 - 16) / 2);
+            const double gap = 4;
+            _newBlock.Title = "New";
+            _newBlock.Subtitle = ByteFormatter.Format((ulong)Math.Max(0, _value));
+            _newBlock.Width = Math.Max(0, valueWidth - gap);
+            Canvas.SetLeft(_newBlock, edge + gap);
         }
 
         BarVisuals.PlaceHandle(_handle, edge);

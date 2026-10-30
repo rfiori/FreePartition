@@ -19,10 +19,10 @@ public sealed record PartitionRow(
     string Unused, string State, string Type,
     char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
     int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0,
-    IReadOnlyList<string>? Details = null);
+    IReadOnlyList<string>? Details = null, bool Reserved = false);
 
-/// <summary>A disk with its rows, for the graphical map.</summary>
-public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows);
+/// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
+public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
 
 /// <summary>Numbered row of the operation queue.</summary>
 public sealed record QueueItem(int Order, DiskOperation Operation);
@@ -127,12 +127,26 @@ public partial class MainWindow : Window
         string title = $"Disk {disk.Index} ({disk.PartitionStyle}) — {disk.Model}";
         bool gpt = disk.PartitionStyle == "GPT";
         var rows = new List<PartitionRow>();
+        var reserved = (disk.Reserved ?? []).Select(r => ReservedRow(title, disk.Index, r.Offset, r.Size)).ToList();
         ulong cursor = 0;
+
+        // A free stretch of the disk, minus any reserved partition inside it.
+        void AddFree(ulong from, ulong to, bool uninitialized)
+        {
+            foreach (var r in reserved.Where(r => r.Offset >= from && r.Offset < to).OrderBy(r => r.Offset))
+            {
+                if (r.Offset - from >= UnallocatedThreshold)
+                    rows.Add(UnallocatedRow(title, disk.Index, from, r.Offset - from, uninitialized));
+                from = r.Offset + r.Size;
+            }
+            if (to > from && to - from >= UnallocatedThreshold)
+                rows.Add(UnallocatedRow(title, disk.Index, from, to - from, uninitialized));
+        }
 
         foreach (var partition in disk.Partitions)
         {
-            if (partition.Offset > cursor && partition.Offset - cursor >= UnallocatedThreshold)
-                rows.Add(UnallocatedRow(title, disk.Index, cursor, partition.Offset - cursor, false));
+            if (partition.Offset > cursor)
+                AddFree(cursor, partition.Offset, false);
 
             string type = TranslateType(partition.Type, gpt);
             string state = StatusText(disk.Status, partition.Details);
@@ -162,11 +176,17 @@ public partial class MainWindow : Window
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
         }
 
-        if (disk.Size > cursor && disk.Size - cursor >= UnallocatedThreshold)
-            rows.Add(UnallocatedRow(title, disk.Index, cursor, disk.Size - cursor, disk.PartitionStyle == "Uninitialized"));
+        if (disk.Size > cursor)
+            AddFree(cursor, disk.Size, disk.PartitionStyle == "Uninitialized");
 
-        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows);
+        var map = rows.Concat(reserved).OrderBy(r => r.Offset).ToList();
+        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map);
     }
+
+    /// <summary>The hidden MSR stretch: drawn on the map only, so no operation can pick it.</summary>
+    private static PartitionRow ReservedRow(string disk, int diskIndex, ulong offset, ulong size) =>
+        new(disk, "MSR", "", ByteFormatter.Format(size), "", "", "", "Reserved", null, null, size, 0, false, diskIndex,
+            Offset: offset, Reserved: true);
 
     private static PartitionRow UnallocatedRow(string disk, int diskIndex, ulong offset, ulong size, bool uninitialized) =>
         new(disk, "*", "Unallocated", ByteFormatter.Format(size), "0 B", ByteFormatter.Format(size),
@@ -219,9 +239,9 @@ public partial class MainWindow : Window
             line.Children.Add(label);
 
             var boxes = new Grid();
-            double total = disk.Rows.Sum(r => (double)r.Size);
+            double total = disk.Map.Sum(r => (double)r.Size);
             int column = 0;
-            foreach (var part in disk.Rows)
+            foreach (var part in disk.Map)
             {
                 boxes.ColumnDefinitions.Add(new ColumnDefinition
                 {
@@ -248,10 +268,11 @@ public partial class MainWindow : Window
 
     private Border CreateBox(PartitionRow part)
     {
-        var borderBrush = part.Unallocated ? Brushes.Silver : new SolidColorBrush(Color.FromRgb(0x5B, 0x9B, 0xD5));
+        bool empty = part.Unallocated || part.Reserved;
+        var borderBrush = empty ? Brushes.Silver : new SolidColorBrush(Color.FromRgb(0x5B, 0x9B, 0xD5));
         var content = new StackPanel { Margin = new Thickness(3) };
 
-        if (!part.Unallocated)
+        if (!empty)
         {
             // Used space as a rounded bar with the percentage inside. Without a volume (no drive letter) there is
             // no usage to show, so the bar stays empty instead of claiming 0%.
@@ -291,13 +312,13 @@ public partial class MainWindow : Window
             content.Children.Add(new Border { Height = UsageBarHeight + 3 });   // keeps the text lines level with the other boxes
         }
 
-        string title = part.Unallocated ? "Unallocated"
+        string title = part.Reserved ? "Reserved (MSR)" : part.Unallocated ? "Unallocated"
             : string.IsNullOrEmpty(part.FileSystem) ? part.Name : $"{part.Name} ({part.FileSystem})";
         content.Children.Add(new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12 });
         content.Children.Add(new TextBlock { Text = part.Capacity, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, Foreground = Brushes.DimGray });
 
         string tooltip = title;
-        if (!part.Unallocated && part.PartitionNumber > 0
+        if (!empty && part.PartitionNumber > 0
             && PartitionAlignment.Classify(part.Offset) == AlignmentStatus.Misaligned)
         {
             content.Children.Add(new TextBlock
@@ -310,9 +331,15 @@ public partial class MainWindow : Window
         var box = new Border
         {
             Background = NormalBox, BorderBrush = borderBrush, BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 3, 0), Cursor = Cursors.Hand, Child = content, ToolTip = tooltip,
-            ContextMenu = BuildContextMenu()
+            Margin = new Thickness(0, 0, 3, 0), Child = content, ToolTip = tooltip
         };
+        if (part.Reserved)
+        {
+            box.ToolTip = "Microsoft Reserved Partition: space that Windows keeps for itself on GPT disks. It cannot be used.";
+            return box;
+        }
+        box.Cursor = Cursors.Hand;
+        box.ContextMenu = BuildContextMenu();
         box.MouseRightButtonDown += (_, _) => DisksGrid.SelectedItem = part;
         box.MouseLeftButtonDown += (_, _) =>
         {
