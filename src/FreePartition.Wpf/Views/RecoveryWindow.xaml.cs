@@ -52,7 +52,49 @@ public partial class RecoveryWindow : Window
         }
     }
 
-    private void CmbDrives_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateTrimWarning();
+    private void CmbDrives_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateTrimWarning();
+        UpdateCarveOption();
+    }
+
+    /// <summary>File systems the carver can read: only the MFT scan needs NTFS.</summary>
+    private static readonly string[] SupportedFormats = ["NTFS", "FAT", "FAT32", "exFAT"];
+
+    /// <summary>File system of each listed drive, by letter.</summary>
+    private readonly Dictionary<string, string> _formats = new();
+
+    private bool IsNtfs(string drive) =>
+        _formats.TryGetValue(drive, out var format) && string.Equals(format, "NTFS", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Carving is the only way to scan a FAT/exFAT drive, so it is forced on there; on NTFS it is the user's choice.</summary>
+    private void UpdateCarveOption()
+    {
+        if (CmbDrives.SelectedItem is not string drive) return;
+
+        bool ntfs = IsNtfs(drive);
+        ChkCarve.IsChecked = !ntfs;
+        ChkCarve.IsEnabled = ntfs && !_busy;
+        UpdateCarveNote();
+    }
+
+    private const string CarvedFormats =
+        "JPEG, PNG, GIF, BMP, WebP, PSD, PDF, DOCX/XLSX/PPTX, ZIP, 7z, MP4/MOV/HEIC, WAV, AVI, SQLite, EXE/DLL";
+
+    private void ChkCarve_Changed(object sender, RoutedEventArgs e) => UpdateCarveNote();
+
+    private void UpdateCarveNote()
+    {
+        bool carve = ChkCarve.IsChecked == true;
+        bool ntfs = CmbDrives.SelectedItem is string drive && IsNtfs(drive);
+
+        TxtCarveNote.Visibility = carve ? Visibility.Visible : Visibility.Collapsed;
+        TxtCarveNote.Text = !ntfs
+            ? $"This drive is not NTFS, so files are searched by their content ({CarvedFormats}). " +
+              "They come back without their original names and folders, and a fragmented file may be incomplete."
+            : $"Files are searched by their content ({CarvedFormats}) instead of the MFT. " +
+              "This reads the whole drive, so it is slow; the files come back without their original names and folders.";
+    }
 
     private void UpdateTrimWarning() =>
         TrimWarning.Visibility = CmbDrives.SelectedItem is string drive && _ssdDrives.Contains(drive)
@@ -81,12 +123,16 @@ public partial class RecoveryWindow : Window
 
     private void LoadDrives(char? initialDrive)
     {
-        var drives = DriveInfo.GetDrives()
+        var candidates = DriveInfo.GetDrives()
             .Where(d => d.IsReady
                         && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Removable)
-                        && string.Equals(d.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase))
-            .Select(d => d.Name.TrimEnd('\\', ':'))
+                        && SupportedFormats.Contains(d.DriveFormat, StringComparer.OrdinalIgnoreCase))
             .ToList();
+
+        _formats.Clear();
+        foreach (var drive in candidates)
+            _formats[drive.Name.TrimEnd('\\', ':')] = drive.DriveFormat;
+        var drives = candidates.Select(d => d.Name.TrimEnd('\\', ':')).ToList();
 
         CmbDrives.ItemsSource = drives;
         if (initialDrive is { } letter && drives.Contains(char.ToUpperInvariant(letter).ToString()))
@@ -99,9 +145,11 @@ public partial class RecoveryWindow : Window
     {
         if (CmbDrives.SelectedItem is not string drive)
         {
-            MessageBox.Show(this, "No NTFS drive available.", "Notice");
+            MessageBox.Show(this, "No NTFS, FAT32 or exFAT drive available.", "Notice");
             return;
         }
+
+        bool carve = ChkCarve.IsChecked == true;
 
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
@@ -113,24 +161,54 @@ public partial class RecoveryWindow : Window
         _result = null;
         Progress.Value = 0;
 
+        bool carving = carve;
         var progress = new Progress<ScanProgress>(p =>
         {
             Progress.Value = p.Percent;
-            TxtFileStatus.Text = p.Phase is { } phase
-                ? $"{phase} — {p.DeletedFound:N0} deleted file(s) found"
-                : $"Analyzing the MFT... {p.Percent:0}% — {p.DeletedFound:N0} deleted file(s) found";
+            TxtFileStatus.Text = carving
+                ? $"{p.Phase ?? "Searching for file signatures..."} — {p.DeletedFound:N0} file(s) found"
+                : p.Phase is { } phase
+                    ? $"{phase} — {p.DeletedFound:N0} deleted file(s) found"
+                    : $"Analyzing the MFT... {p.Percent:0}% — {p.DeletedFound:N0} deleted file(s) found";
         });
 
         try
         {
-            _result = await new DeletedFileScanner().ScanAsync(drive, progress, _cts.Token);
+            if (!carve)
+            {
+                try
+                {
+                    _result = await new DeletedFileScanner().ScanAsync(drive, progress, _cts.Token);
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException)
+                {
+                    // The MFT cannot be read: carving does not depend on it, so it becomes the way to scan this drive.
+                    carving = true;
+                    ChkCarve.IsChecked = true;
+                    TxtFileStatus.Text = $"The MFT could not be read ({ex.Message}). Searching by file signature instead...";
+                }
+            }
+
+            if (carving)
+                _result = await new FileCarver().ScanAsync(drive, progress, _cts.Token);
 
             RebuildTree();
 
+            // A canceled carving scan still lists what it found: the search was already done.
+            if (_result!.Canceled)
+            {
+                TxtFileStatus.Text =
+                    $"Scan canceled: {_result.Files.Count:N0} file(s) found in the first " +
+                    $"{ByteFormatter.Format(_result.RecordsAnalyzed * _result.BytesPerCluster)} of the drive.";
+                return;
+            }
+
             Progress.Value = 100;
-            TxtFileStatus.Text =
-                $"{_result.Files.Count:N0} deleted file(s) in {_result.Duration.TotalSeconds:0.0}s " +
-                $"({_result.RecordsAnalyzed:N0} records analyzed).";
+            TxtFileStatus.Text = carving
+                ? $"{_result!.Files.Count:N0} file(s) found by signature in {_result.Duration.TotalSeconds:0.0}s " +
+                  $"({ByteFormatter.Format(_result.RecordsAnalyzed * _result.BytesPerCluster)} scanned)."
+                : $"{_result!.Files.Count:N0} deleted file(s) in {_result.Duration.TotalSeconds:0.0}s " +
+                  $"({_result.RecordsAnalyzed:N0} records analyzed).";
         }
         catch (OperationCanceledException)
         {
@@ -154,6 +232,7 @@ public partial class RecoveryWindow : Window
         BtnScan.IsEnabled = !running;
         BtnCancel.IsEnabled = running;
         CmbDrives.IsEnabled = !running;
+        ChkCarve.IsEnabled = !running && CmbDrives.SelectedItem is string drive && IsNtfs(drive);
         _busy = running;
         UpdateRecoverButton();
     }

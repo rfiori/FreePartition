@@ -30,10 +30,10 @@ public static class FileCategories
                 map[extension] = category;
         }
 
-        Add(FileCategory.Pictures, "jpg jpeg png gif bmp tif tiff webp heic ico svg raw cr2 nef dng psd");
+        Add(FileCategory.Pictures, "jpg jpeg png gif bmp tif tiff webp heic avif ico svg raw cr2 cr3 nef dng psd psb");
         Add(FileCategory.Documents, "doc docx xls xlsx ppt pptx pdf txt rtf odt ods odp csv md html htm xml json log");
         Add(FileCategory.Audio, "mp3 wav flac aac ogg wma m4a opus mid");
-        Add(FileCategory.Video, "mp4 mkv avi mov wmv flv webm m4v mpg mpeg 3gp");
+        Add(FileCategory.Video, "mp4 mkv avi mov wmv flv webm m4v mpg mpeg 3gp 3g2");
         Add(FileCategory.Archives, "zip rar 7z tar gz bz2 xz iso cab");
         return map;
     }

@@ -10,7 +10,10 @@ public enum RecoveryChance
     Overwritten,
     Low,
     Medium,
-    High
+    High,
+
+    /// <summary>Found by its content signature, not by the file system: the end was worked out from the format and nothing confirms it.</summary>
+    Carved
 }
 
 public sealed record DeletedFile(
@@ -34,6 +37,7 @@ public sealed record DeletedFile(
         RecoveryChance.Medium => "Medium",
         RecoveryChance.Low => "Low",
         RecoveryChance.Overwritten => "Overwritten (zeros)",
+        RecoveryChance.Carved => "Carved (unverified)",
         _ => "Unavailable"
     };
 
@@ -55,4 +59,5 @@ public sealed record ScanResult(
     int BytesPerCluster,
     long RecordsAnalyzed,
     TimeSpan Duration,
-    IReadOnlyList<DeletedFile> Files);
+    IReadOnlyList<DeletedFile> Files,
+    bool Canceled = false);

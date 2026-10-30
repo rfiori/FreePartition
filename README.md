@@ -22,25 +22,55 @@
   <a href="https://github.com/rfiori/FreePartition/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/rfiori/FreePartition/total"></a>
 </p>
 
-> [!WARNING]
-> **Alpha software that touches disks.** The MFT scan has not yet been validated on real
-> hardware, and the partition operations run real PowerShell cmdlets. Try it on a **test VHD
-> or a virtual machine first**, and keep backups. See [Safety](#safety) and
-> [Known limitations](#known-limitations).
+---
+## Requirements
 
+- Windows 10 / 11
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
+- Administrator rights to run the app (raw volume access and partition)
+
+## Quick start
+
+```bash
+git clone https://github.com/rfiori/FreePartition.git
+cd FreePartition
+dotnet build
+dotnet test
+dotnet run --project src/FreePartition.Wpf
+```
+
+The app requests elevation (UAC) on startup. If you run it from Visual Studio, open
+Visual Studio **as administrator**.
+
+<details>
+<summary><b>Using a different .NET version</b></summary>
+
+The default target is `net10.0-windows`, set in a single place. Edit `TargetFramework` in
+[`Directory.Build.props`](Directory.Build.props), for example to `net8.0-windows`.
+
+</details>
+
+<details>
+<summary><b>If your tooling does not support the <code>.slnx</code> solution format</b></summary>
+
+`.slnx` needs Visual Studio 2022 17.13+ or a recent `dotnet`. To generate a classic `.sln`:
+
+```bash
+dotnet new sln --format sln -n FreePartition
+dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.Tests
+```
+
+</details>
 ---
 
 ## Table of contents
 
 - [What it does](#what-it-does)
 - [Screenshots](#screenshots)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
 - [Releases](#releases)
 - [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
 - [How recovery works](#how-recovery-works)
 - [Safety](#safety)
-- [Project structure](#project-structure)
 - [Roadmap](#roadmap)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
@@ -67,7 +97,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Properties** | Usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
 | **Verify wipe** | Reads a whole volume (also a RAW one) and checks that nothing is left after a wipe: counts the bytes that are not zero, shows where the first one is with a hex dump and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
 | **Cluster map** | Draws a whole volume (also a RAW one) as a grid. Each square is classified as zero, data or unreadable from three 4 KB samples; clicking a square shows its byte range, its NTFS clusters and a hex dump. |
-| **Recover files** | Looks for deleted files on the selected NTFS drive (see below). |
+| **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS (see below). |
 
 **Create**
 
@@ -120,7 +150,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
-Not implemented yet: SSD firmware Secure Erase, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -138,45 +168,6 @@ Not implemented yet: SSD firmware Secure Erase, file carving, lost-partition rec
     <td><img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="100%"></td>
   </tr>
 </table>
-
-## Requirements
-
-- Windows 10 / 11 (the project uses WMI, P/Invoke, PowerShell and WPF — Windows only).
-- [.NET SDK 10](https://dotnet.microsoft.com/download) (or change the target, see below).
-- Administrator rights to run the app (raw volume access and partition cmdlets).
-
-## Quick start
-
-```bash
-git clone https://github.com/rfiori/FreePartition.git
-cd FreePartition
-dotnet build
-dotnet test
-dotnet run --project src/FreePartition.Wpf
-```
-
-The app requests elevation (UAC) on startup. If you run it from Visual Studio, open
-Visual Studio **as administrator**.
-
-<details>
-<summary><b>Using a different .NET version</b></summary>
-
-The default target is `net10.0-windows`, set in a single place. Edit `TargetFramework` in
-[`Directory.Build.props`](Directory.Build.props), for example to `net8.0-windows`.
-
-</details>
-
-<details>
-<summary><b>If your tooling does not support the <code>.slnx</code> solution format</b></summary>
-
-`.slnx` needs Visual Studio 2022 17.13+ or a recent `dotnet`. To generate a classic `.sln`:
-
-```bash
-dotnet new sln --format sln -n FreePartition
-dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.Tests
-```
-
-</details>
 
 ## Releases
 
@@ -220,6 +211,28 @@ When you are done: `Dismount-VHD -Path $vhd` and delete the file.
 5. Cross-checks the file's clusters against `$Bitmap`: clusters still free = data probably intact.
 6. Recover = copy the clusters (or the content resident in the MFT) to a file on **another disk**.
 
+### File carving
+
+The **Carve files by signature** option in the recovery window ignores the file system and walks the whole
+volume sector by sector, looking for the bytes each format starts with, then works out where each file ends
+from its own structure:
+
+| Kind | Formats | How the end is found |
+|---|---|---|
+| Images | JPEG, PNG, GIF, BMP, WebP, PSD/PSB | Marker/chunk/block walk, or the size in the header |
+| Documents | PDF, DOCX/XLSX/PPTX, ZIP | Last `%%EOF`, or the ZIP end record checked against its directory |
+| Media | MP4, MOV, M4A, 3GP, HEIC, AVIF, WAV, AVI | Chain of boxes, or the RIFF size |
+| Other | 7z, SQLite, EXE/DLL | Size in the header (7z checked by its CRC), or the last section and signature (PE) |
+
+It is on by default for FAT/exFAT drives, and the scan switches to it by itself when the NTFS MFT cannot be read.
+
+- Files come back as `carved_00001.jpg`, grouped by type, without their original names, folders or dates.
+- A fragmented file is cut at the first gap, so it may be incomplete or damaged.
+- A file whose end has to be searched for (JPEG, PNG, GIF, PDF, ZIP) is skipped past 256 MiB; formats that state their
+  own size (video, audio, 7z, SQLite) go up to 16 GiB. Data appended to an EXE/DLL (installers) is not included.
+- It reads the entire drive, so it is much slower than the MFT scan. The volume is still opened read-only.
+  **Cancel** stops the scan and lists everything found so far, so a long scan can be cut short and still be useful.
+
 ## Safety
 
 The guarantees the code is built around:
@@ -249,22 +262,6 @@ The guarantees the code is built around:
 - **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
 
-## Project structure
-
-```
-FreePartition.slnx                     # the solution
-Directory.Build.props                  # TargetFramework and shared options
-src/FreePartition.Core/                # all logic, no UI, testable without a real disk
-  Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models,
-               DriveLayout + SectorCopier + PhysicalDiskMover (move partition), PartitionAlignment,
-               SectorWiper + FreeSpaceWiper + PhysicalDiskWiper (wipe), WipeVerifier (verify wipe), ClusterMap, DiskIo (shared raw Windows calls)
-  Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
-  Operations/  DiskOperation (+ types), WipeOperations, ConvertVolume (FAT32 ↔ NTFS), OperationQueue, PowerShellExecutor, OperationLog
-  Util/        ByteFormatter
-src/FreePartition.Wpf/                 # WPF UI (app.manifest: requireAdministrator)
-tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fake executor)
-```
-
 ## Roadmap
 
 **Basic**
@@ -293,7 +290,7 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - ✅ Always recover to another disk
 - ✅ Filter by name
 - ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
-- ⚪ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
+- ✅ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
 - ⚪ Recover lost partitions
 - ✅ Explicit TRIM warning on SSD
 
@@ -306,7 +303,8 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 
 ## Known limitations
 
-- **NTFS only.** FAT/exFAT need another routine (directory entries with `0xE5`) and/or *file carving*.
+- **Names and folders need NTFS.** FAT/exFAT only have *file carving* (no names, folders or dates, a handful of formats);
+  reading their directory entries (`0xE5`) is not implemented. Carving has never run on a real volume yet: test it on a VHD first.
 - Files with an `$ATTRIBUTE_LIST` (very fragmented, or with many attributes) may appear incomplete.
 - Compressed or encrypted (EFS) files are marked "Unavailable".
 - Alternate data streams (ADS) are ignored.
@@ -345,4 +343,4 @@ MIT — see [LICENSE](LICENSE).
 Privacy policy: [English](docs/privacy/PRIVACY.md) · [Español](docs/privacy/PRIVACY.es.md) ·
 [Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data and makes no network connections.
 
-FreePartition is an independent project and is not affiliated with EaseUS.
+FreePartition is an independent project and is not affiliated with any company.
