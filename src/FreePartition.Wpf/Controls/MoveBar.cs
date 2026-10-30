@@ -1,30 +1,26 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using System.Windows.Shapes;
 using FreePartition.Core.Util;
 
 namespace FreePartition.Wpf;
 
 /// <summary>
-/// Bar that shows a stretch of free space with a partition inside it, and lets the user drag the partition
-/// left or right within that stretch. The value is the partition's offset on the disk, in whole MiB.
+/// Bar that shows a stretch of free space (aqua green) with a partition (yellow) inside it, and lets the user drag
+/// the partition left or right within that stretch. The value is the partition's offset on the disk, in whole MiB.
 /// </summary>
 public sealed class MoveBar : StackPanel
 {
     private const long Granularity = 1L << 20;   // 1 MiB
 
-    private static readonly Brush Blue = Frozen("#5B9BD5");
-    private static readonly Brush LightBlue = Frozen("#CFE2F3");
-    private static readonly Brush DarkBlue = Frozen("#2F6FA8");
-
-    private readonly Canvas _canvas = new() { Background = Brushes.Transparent, Cursor = Cursors.SizeWE };
-    private readonly Rectangle _rectPartition = new() { Fill = LightBlue, Stroke = DarkBlue, StrokeThickness = 1, Height = 54 };
-    private readonly Rectangle _rectUsed = new() { Fill = Blue, Height = 54 };
-    private readonly TextBlock _title = new() { IsHitTestVisible = false, FontWeight = FontWeights.SemiBold };
-    private readonly TextBlock _before = new() { Foreground = Brushes.DimGray, HorizontalAlignment = HorizontalAlignment.Left };
-    private readonly TextBlock _after = new() { Foreground = Brushes.DimGray, HorizontalAlignment = HorizontalAlignment.Right };
+    private readonly Canvas _canvas = new() { Background = System.Windows.Media.Brushes.Transparent, Cursor = Cursors.SizeWE };
+    private readonly PartitionBlock _block = new();
+    private readonly Ellipse _handleLeft = BarVisuals.CreateHandle();
+    private readonly Ellipse _handleRight = BarVisuals.CreateHandle();
+    private readonly SizeBracket _bracket = new();
+    private readonly TextBlock _before = new() { Foreground = System.Windows.Media.Brushes.DimGray, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly TextBlock _after = new() { Foreground = System.Windows.Media.Brushes.DimGray, HorizontalAlignment = HorizontalAlignment.Right };
 
     private long _start, _end, _length, _used, _min, _max, _value;
     private double _grab;   // distance from the partition's left edge to the mouse when the drag started
@@ -44,16 +40,21 @@ public sealed class MoveBar : StackPanel
         set { _value = Clamp(value); Refresh(); }
     }
 
+    /// <param name="title">First line inside the partition, e.g. "E:".</param>
     /// <param name="start">Where the free stretch (which includes the partition) begins on the disk.</param>
     /// <param name="end">Where it ends.</param>
     /// <param name="current">Offset the partition has now.</param>
-    public MoveBar(string title, long start, long end, long length, long used, long current)
+    /// <param name="subtitle">Second line inside the partition, e.g. its size.</param>
+    public MoveBar(string title, long start, long end, long length, long used, long current, string subtitle = "")
     {
         _start = start;
         _end = end;
         _length = length;
         _used = used;
-        _title.Text = title;
+        _block.Title = title;
+        _block.Subtitle = subtitle;
+        _block.Fraction = length > 0 ? (double)used / length : 0;
+        _bracket.Text = $"Available space: {ByteFormatter.Format(Math.Max(0, end - start))}";
 
         // Destinations are whole MiB; the current position always stays reachable.
         long first = (Math.Max(start, 1L << 20) + Granularity - 1) / Granularity * Granularity;
@@ -62,16 +63,17 @@ public sealed class MoveBar : StackPanel
         _max = Math.Max(last, current);
         _value = current;
 
-        _canvas.Children.Add(_rectPartition);
-        _canvas.Children.Add(_rectUsed);
-        _canvas.Children.Add(_title);
+        Canvas.SetTop(_block, BarVisuals.BlockTop);
+        _canvas.Children.Add(_block);
+        _canvas.Children.Add(_handleLeft);
+        _canvas.Children.Add(_handleRight);
         _canvas.SizeChanged += (_, _) => Refresh();
         _canvas.MouseLeftButtonDown += (_, e) =>
         {
             double x = e.GetPosition(_canvas).X;
-            double left = Canvas.GetLeft(_rectPartition);
+            double left = Canvas.GetLeft(_block);
             // Grab the partition where it was clicked; a click on the free space centers the partition there.
-            _grab = x >= left && x <= left + _rectPartition.Width ? x - left : _rectPartition.Width / 2;
+            _grab = x >= left && x <= left + _block.Width ? x - left : _block.Width / 2;
             _dragging = _canvas.CaptureMouse();
             SetFromPosition(x);
         };
@@ -85,12 +87,9 @@ public sealed class MoveBar : StackPanel
             _canvas.ReleaseMouseCapture();
         };
 
-        Children.Add(new Border
-        {
-            BorderBrush = Blue, BorderThickness = new Thickness(1), Background = Frozen("#EEEEEE"),
-            Height = 56, Child = _canvas
-        });
-        var labels = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        Children.Add(BarVisuals.CreateTrack(_canvas));
+        Children.Add(_bracket);
+        var labels = new Grid();
         labels.Children.Add(_before);
         labels.Children.Add(_after);
         Children.Add(labels);
@@ -134,21 +133,9 @@ public sealed class MoveBar : StackPanel
         double left = (_value - _start) * scale;
         double partitionWidth = _length * scale;
 
-        _rectPartition.Width = partitionWidth;
-        Canvas.SetLeft(_rectPartition, left);
-        _rectUsed.Width = Math.Min(_used * scale, partitionWidth);
-        Canvas.SetLeft(_rectUsed, left);
-
-        _title.MaxWidth = Math.Max(0, partitionWidth - 8);
-        _title.TextTrimming = TextTrimming.CharacterEllipsis;
-        Canvas.SetLeft(_title, left + 6);
-        Canvas.SetTop(_title, 18);
-    }
-
-    private static Brush Frozen(string color)
-    {
-        var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
-        brush.Freeze();
-        return brush;
+        _block.Width = Math.Max(partitionWidth, 0);
+        Canvas.SetLeft(_block, left);
+        BarVisuals.PlaceHandle(_handleLeft, left);
+        BarVisuals.PlaceHandle(_handleRight, left + partitionWidth);
     }
 }

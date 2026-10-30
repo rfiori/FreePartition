@@ -8,26 +8,24 @@ using FreePartition.Core.Util;
 namespace FreePartition.Wpf;
 
 /// <summary>
-/// Draggable bar that shows a partition (or free space) and lets the user pick a size with the mouse.
-/// Normally the value grows from the left edge; with <see cref="Reversed"/> it is the part at the right end
-/// (the new partition of a split), so dragging the handle left makes it bigger.
+/// Draggable bar that shows a partition (yellow) inside the space it can use (aqua green) and lets the user pick a
+/// size with the mouse by dragging the round handle on its edge. Normally the value grows from the left edge; with
+/// <see cref="Reversed"/> it is the part at the right end (the new partition of a split), so dragging the handle
+/// left makes it bigger.
 /// </summary>
 public sealed class PartitionBar : StackPanel
 {
     private const long Granularity = 1L << 20;   // 1 MiB
 
-    private static readonly Brush Blue = Frozen("#5B9BD5");
-    private static readonly Brush LightBlue = Frozen("#CFE2F3");
-    private static readonly Brush LightGreen = Frozen("#C6E0B4");
-    private static readonly Brush DarkBlue = Frozen("#2F6FA8");
-
     private readonly Canvas _canvas = new() { Background = Brushes.Transparent, Cursor = Cursors.SizeWE };
-    private readonly Rectangle _rectPartition = new() { Fill = LightBlue, Height = 54 };
-    private readonly Rectangle _rectNew = new() { Fill = LightGreen, Height = 54, Visibility = Visibility.Collapsed };
-    private readonly Rectangle _rectUsed = new() { Fill = Blue, Height = 54 };
-    private readonly Rectangle _handle = new() { Fill = DarkBlue, Width = 6, Height = 54 };
-    private readonly TextBlock _left = new() { Foreground = Brushes.DimGray, HorizontalAlignment = HorizontalAlignment.Left };
-    private readonly TextBlock _right = new() { Foreground = Brushes.DimGray, HorizontalAlignment = HorizontalAlignment.Right };
+    private readonly PartitionBlock _block = new();
+    private readonly TextBlock _newLabel = new()
+    {
+        FontWeight = FontWeights.SemiBold, IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis,
+        Visibility = Visibility.Collapsed
+    };
+    private readonly Ellipse _handle = BarVisuals.CreateHandle();
+    private readonly SizeBracket _bracket = new();
     private long _total, _used, _minimum, _maximum, _value;
     private bool _reversed, _dragging;
 
@@ -37,7 +35,7 @@ public sealed class PartitionBar : StackPanel
     /// <summary>Whole length of the bar in bytes.</summary>
     public long Total { get => _total; set { _total = value; Refresh(); } }
 
-    /// <summary>Bytes already in use, drawn in the darker color from the left edge.</summary>
+    /// <summary>Bytes already in use, drawn in the used-space bar of the partition.</summary>
     public long Used { get => _used; set { _used = value; Refresh(); } }
 
     public long Minimum { get => _minimum; set { _minimum = value; Refresh(); } }
@@ -56,9 +54,9 @@ public sealed class PartitionBar : StackPanel
 
     public PartitionBar()
     {
-        _canvas.Children.Add(_rectPartition);
-        _canvas.Children.Add(_rectNew);
-        _canvas.Children.Add(_rectUsed);
+        Canvas.SetTop(_block, BarVisuals.BlockTop);
+        _canvas.Children.Add(_block);
+        _canvas.Children.Add(_newLabel);
         _canvas.Children.Add(_handle);
         _canvas.SizeChanged += (_, _) => Refresh();
         _canvas.MouseLeftButtonDown += (_, e) =>
@@ -76,15 +74,8 @@ public sealed class PartitionBar : StackPanel
             _canvas.ReleaseMouseCapture();
         };
 
-        Children.Add(new Border
-        {
-            BorderBrush = Blue, BorderThickness = new Thickness(1), Background = Frozen("#EEEEEE"),
-            Height = 56, Child = _canvas
-        });
-        var labels = new Grid { Margin = new Thickness(0, 4, 0, 0) };
-        labels.Children.Add(_left);
-        labels.Children.Add(_right);
-        Children.Add(labels);
+        Children.Add(BarVisuals.CreateTrack(_canvas));
+        Children.Add(_bracket);
     }
 
     private void SetFromPosition(double x)
@@ -107,37 +98,32 @@ public sealed class PartitionBar : StackPanel
 
     private void Refresh()
     {
-        _left.Text = $"{(_reversed ? "Max" : "Min")} {ByteFormatter.Format((ulong)Math.Max(0, _reversed ? _maximum : _minimum))}";
-        _right.Text = $"{(_reversed ? "Min" : "Max")} {ByteFormatter.Format((ulong)Math.Max(0, _reversed ? _minimum : _maximum))}";
+        string min = ByteFormatter.Format((ulong)Math.Max(0, _minimum));
+        string max = ByteFormatter.Format((ulong)Math.Max(0, _maximum));
+        _bracket.Text = _minimum > 0 ? $"Minimum: {min}   ·   Maximum: {max}" : $"Maximum: {max}";
 
         double width = _canvas.ActualWidth;
         if (width <= 0 || _total <= 0) return;
 
         double valueWidth = Math.Clamp((double)_value / _total, 0, 1) * width;
-        double usedWidth = Math.Clamp((double)_used / _total, 0, 1) * width;
-        double edge;   // where the handle sits
+        double edge = _reversed ? width - valueWidth : valueWidth;   // where the partition ends and the handle sits
+        long blockBytes = _reversed ? Math.Max(0, _total - _value) : _value;
+
+        _block.Width = Math.Max(edge, 0);
+        _block.Title = ByteFormatter.Format((ulong)Math.Max(0, blockBytes));
+        _block.Subtitle = _reversed ? "Remaining" : "";
+        _block.Fraction = blockBytes > 0 ? (double)_used / blockBytes : 0;
+
+        // The part past the handle is free space; in a split it is the new partition, so say how big it is.
+        _newLabel.Visibility = _reversed ? Visibility.Visible : Visibility.Collapsed;
         if (_reversed)
         {
-            edge = width - valueWidth;
-            _rectPartition.Width = edge;
-            _rectNew.Visibility = Visibility.Visible;
-            Canvas.SetLeft(_rectNew, edge);
-            _rectNew.Width = valueWidth;
+            _newLabel.Text = $"New: {ByteFormatter.Format((ulong)Math.Max(0, _value))}";
+            _newLabel.MaxWidth = Math.Max(0, valueWidth - 14);
+            Canvas.SetLeft(_newLabel, edge + 10);
+            Canvas.SetTop(_newLabel, (BarVisuals.TrackHeight - 2 - 16) / 2);
         }
-        else
-        {
-            edge = valueWidth;
-            _rectPartition.Width = valueWidth;
-            _rectNew.Visibility = Visibility.Collapsed;
-        }
-        _rectUsed.Width = Math.Min(usedWidth, edge);
-        Canvas.SetLeft(_handle, Math.Clamp(edge - _handle.Width / 2, 0, Math.Max(0, width - _handle.Width)));
-    }
 
-    private static Brush Frozen(string color)
-    {
-        var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!;
-        brush.Freeze();
-        return brush;
+        BarVisuals.PlaceHandle(_handle, edge);
     }
 }

@@ -72,6 +72,17 @@ public sealed class FileRecovererTests : IDisposable
     }
 
     [Fact]
+    public void Recover_OverwrittenFile_IsRefused_AndNothingIsWritten()
+    {
+        var file = Resident("a.bin", [0, 0, 0], chance: RecoveryChance.Overwritten);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => _recoverer.Recover(ScanOnAnotherDrive(), file, Dest()));
+
+        Assert.Contains("overwritten", ex.Message);
+        Assert.False(Directory.Exists(Dest()));
+    }
+
+    [Fact]
     public void Recover_InvalidCharactersInName_AreReplaced_AndFileStaysInsideDestination()
     {
         string path = _recoverer.Recover(ScanOnAnotherDrive(), Resident("a:b*c?d\"e<f>g|h.txt", [1]), Dest());

@@ -50,13 +50,13 @@
 
 | Area | Feature |
 | --- | --- |
-| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, and tells SSDs from HDDs. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
-| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
-| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair), convert FAT32 ↔ NTFS keeping the files. Also available from the right-click menu. |
+| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, tells SSDs from HDDs and flags partitions that are not aligned to 4 KB. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
+| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
+| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, align a partition to 1 MB, wipe a partition, a disk or free space, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair), convert FAT32 ↔ NTFS keeping the files. Also available from the right-click menu. |
 | **Disk health** | Read-only report per disk (Tools → Disk health): overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation* (simulation is on by default), plus a log in `%LocalAppData%\FreePartition\operations.log` that you can show in the app or open from the Tools menu. |
 
-Not implemented yet: secure wipe, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -161,13 +161,19 @@ The guarantees the code is built around:
 - Formatting or changing the drive letter of the **Windows drive** is blocked.
 - PowerShell scripts are generated only from validated values (drive letter, numeric size,
   file system from a closed list, label with restricted characters) — no command injection.
-- **Move partition is the one exception to "nothing is written outside the PowerShell cmdlets"**, because Windows
-  has no cmdlet that changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
+- **Move partition and the wipe operations are the only exceptions to "nothing is written outside the PowerShell
+  cmdlets"**, because Windows has no cmdlet for them. Move partition exists because no cmdlet changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
   only inside the partition's own space plus free space of the same disk (the table is checked first, and the drive
   letter must be exactly the selected partition), with the volume locked and unmounted. If the partition table
   cannot be updated after the copy, the data is copied back. **If the power fails or the computer is turned off
   while it runs, the data on that partition is corrupted** — the app says so before and when applying, and it
   cannot be canceled once the copy has started.
+- **Wipe** (partition, free space, whole disk) only runs after **Apply**, after typing the drive letter or disk
+  number to confirm. It is refused on the Windows drive, and *Wipe disk* on any disk holding the Windows drive or
+  the app itself — checked by the queue, by the script (`IsSystem`/`IsBoot`) and again right before writing, failing
+  closed if the disk cannot be identified. A partition is overwritten through its own locked volume, so no write can
+  land outside it. Writes are sector-aligned. On SSDs the app warns that overwriting cannot reach the drive's spare
+  cells.
 - The queue stops at the first failure; the remaining operations stay pending.
 - **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
@@ -179,9 +185,10 @@ FreePartition.slnx                     # the solution
 Directory.Build.props                  # TargetFramework and shared options
 src/FreePartition.Core/                # all logic, no UI, testable without a real disk
   Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models,
-               DriveLayout + SectorCopier + PhysicalDiskMover (move partition)
+               DriveLayout + SectorCopier + PhysicalDiskMover (move partition), PartitionAlignment,
+               SectorWiper + FreeSpaceWiper + PhysicalDiskWiper (wipe), DiskIo (shared raw Windows calls)
   Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
-  Operations/  DiskOperation (+ types), ConvertVolume (FAT32 ↔ NTFS), OperationQueue, PowerShellExecutor, OperationLog
+  Operations/  DiskOperation (+ types), WipeOperations, ConvertVolume (FAT32 ↔ NTFS), OperationQueue, PowerShellExecutor, OperationLog
   Util/        ByteFormatter
 src/FreePartition.Wpf/                 # WPF UI (app.manifest: requireAdministrator)
 tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fake executor)
@@ -205,7 +212,9 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - ✅ Merge and split partitions
 - ✅ Convert FAT32 ↔ NTFS without data loss (not yet run on a real disk; test on a VHD first)
 - ✅ Check for errors (`chkdsk`; scan or repair)
-- ⚪ Securely wipe a disk / 4K alignment for SSD
+- ✅ Detect partitions not aligned to 4 KB (warning on the disk map and in Properties)
+- ✅ Align a partition to 1 MB (moves it to the nearest boundary; same risk as a move, not yet run on a VHD)
+- ✅ Wipe a partition, a whole disk or a drive's free space (zeros, verified zeros or random data; not yet run on a VHD)
 
 **Data recovery**
 - ✅ Find deleted files (MFT scan, NTFS)
@@ -232,8 +241,9 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - Alternate data streams (ADS) are ignored.
 - The sequence number of the parent reference is not validated — paths of reused folders may be wrong.
 - On SSDs with TRIM, deleted data has usually already been discarded by the controller.
-- Move partition: same disk only, MBR (without extended partitions) and GPT, 4 KB-aligned partitions, and the
-  partition needs a drive letter. You drag the partition inside the free space touching it (before and/or after), in steps of 1 MiB.
+- Move partition: same disk only, MBR (without extended partitions) and GPT, destinations aligned to 4 KB, and the
+  partition needs a drive letter. **Align partition** uses the same move, so it needs up to 1 MB of free space
+  right before or after the partition. You drag the partition inside the free space touching it (before and/or after), in steps of 1 MiB.
   Boot-sector "hidden sectors" are not rewritten, so the app asks for confirmation when the partition is marked
   Boot, Active, Page File or Crash Dump, and refuses the Windows drive outright.
 - Convert FAT32 ↔ NTFS: FAT32 → NTFS runs Windows' in-place `convert.exe`. NTFS → FAT32 has no in-place tool, so the

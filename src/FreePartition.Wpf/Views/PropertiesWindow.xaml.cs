@@ -124,6 +124,8 @@ public partial class PropertiesWindow : Window
         AddFact("Location", "Starting offset", $"{ByteFormatter.Format(row.Offset)}  ({row.Offset:N0} bytes)");
         AddFact("Location", "Partition size", $"{ByteFormatter.Format(row.Size)}  ({row.Size:N0} bytes)");
         AddFact("Location", "Ending offset", $"{ByteFormatter.Format(row.Offset + row.Size)}");
+        if (row.PartitionNumber > 0)
+            AddFact("Location", "Alignment", PartitionAlignment.Describe(PartitionAlignment.Classify(row.Offset)));
         if (partition?.Details is { Count: > 0 } details)
             AddFact("Location", "Roles", string.Join(", ", details));
     }
@@ -256,6 +258,8 @@ public partial class PropertiesWindow : Window
             InfoPanel.Children.Add(grid);
         }
     }
+
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
     private void Copy_Click(object sender, RoutedEventArgs e)
     {

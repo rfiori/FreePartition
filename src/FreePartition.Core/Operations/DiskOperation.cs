@@ -523,9 +523,10 @@ public sealed record MovePartition(
             throw new ArgumentException("Invalid partition position.");
         if (NewOffsetBytes == SourceOffsetBytes)
             throw new ArgumentException("The partition is already at that position.");
-        if (SourceOffsetBytes % DriveLayout.Alignment != 0 || SizeBytes % DriveLayout.Alignment != 0
-            || NewOffsetBytes % DriveLayout.Alignment != 0)
-            throw new ArgumentException("The partition and its destination must be aligned to 4 KB.");
+        if (SourceOffsetBytes % DriveLayout.MinSectorSize != 0 || SizeBytes % DriveLayout.MinSectorSize != 0)
+            throw new ArgumentException("The partition must start and end on a sector boundary.");
+        if (NewOffsetBytes % DriveLayout.Alignment != 0)
+            throw new ArgumentException("The destination must be aligned to 4 KB.");
         if (NewOffsetBytes < DriveLayout.FirstUsableOffset)
             throw new ArgumentException("The destination must be after the first 1 MB of the disk.");
     }

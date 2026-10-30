@@ -116,7 +116,9 @@ public partial class RecoveryWindow : Window
         var progress = new Progress<ScanProgress>(p =>
         {
             Progress.Value = p.Percent;
-            TxtFileStatus.Text = $"Analyzing the MFT... {p.Percent:0}% — {p.DeletedFound:N0} deleted file(s) found";
+            TxtFileStatus.Text = p.Phase is { } phase
+                ? $"{phase} — {p.DeletedFound:N0} deleted file(s) found"
+                : $"Analyzing the MFT... {p.Percent:0}% — {p.DeletedFound:N0} deleted file(s) found";
         });
 
         try
@@ -247,9 +249,12 @@ public partial class RecoveryWindow : Window
 
     private void ShowPreview(FilePreview preview, DeletedFile file)
     {
-        string note = file.Chance is RecoveryChance.Low
-            ? " The clusters may have been overwritten, so the content can be wrong."
-            : "";
+        string note = file.Chance switch
+        {
+            RecoveryChance.Low => " The clusters may have been overwritten, so the content can be wrong.",
+            RecoveryChance.Overwritten => " The data was overwritten with zeros: there is nothing left to recover.",
+            _ => ""
+        };
 
         if (preview.Kind == PreviewKind.Image)
         {

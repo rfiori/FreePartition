@@ -12,6 +12,21 @@ public static class SectorCopier
 {
     public const int DefaultChunkBytes = 4 << 20;
 
+    /// <summary>
+    /// A physical disk only accepts reads and writes that start and end on its logical sector. The chunks are a
+    /// multiple of any sector size, so checking the range once up front covers every read and write of the move,
+    /// including the shorter last chunk.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Some read or write of the move would not be sector-aligned.</exception>
+    public static void EnsureSectorAligned(long source, long destination, long length, int sectorSize)
+    {
+        if (sectorSize <= 0 || (sectorSize & (sectorSize - 1)) != 0 || DefaultChunkBytes % sectorSize != 0)
+            throw new InvalidOperationException($"Unsupported sector size: {sectorSize} bytes.");
+        if (source % sectorSize != 0 || destination % sectorSize != 0 || length % sectorSize != 0)
+            throw new InvalidOperationException(
+                $"The partition or its destination is not on a {sectorSize}-byte sector boundary of this disk. Nothing was changed.");
+    }
+
     /// <param name="progress">Fraction done, 0 to 1.</param>
     public static void Move(SafeFileHandle disk, long source, long destination, long length,
         IProgress<double>? progress = null, int chunkBytes = DefaultChunkBytes)

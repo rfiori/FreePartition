@@ -128,7 +128,7 @@
             <!-- Column headers; the right margin leaves room for the tree's scroll bar -->
             <DockPanel Grid.Row="0" Background="#F3F3F3" Margin="0,0,0,0" TextBlock.FontWeight="SemiBold">
                 <Border Width="20" DockPanel.Dock="Right" />
-                <TextBlock Text="Chance" Width="100" DockPanel.Dock="Right" Margin="4,4" />
+                <TextBlock Text="Chance" Width="135" DockPanel.Dock="Right" Margin="4,4" />
                 <TextBlock Text="Modified" Width="120" DockPanel.Dock="Right" Margin="4,4" />
                 <TextBlock Text="Size" Width="90" DockPanel.Dock="Right" Margin="4,4" />
                 <TextBlock Text="Name" Margin="26,4" />
@@ -191,10 +191,10 @@
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                         <DockPanel LastChildFill="True" Margin="0,1">
-                            <TextBlock Text="{Binding ChanceText}" Width="100" DockPanel.Dock="Right" Margin="4,0" />
+                            <TextBlock Text="{Binding ChanceText}" Width="135" DockPanel.Dock="Right" Margin="4,0" />
                             <TextBlock Text="{Binding ModifiedText}" Width="120" DockPanel.Dock="Right" Margin="4,0" />
                             <TextBlock Text="{Binding SizeText}" Width="90" DockPanel.Dock="Right" Margin="4,0" />
-                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" IsThreeState="True"
+                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" IsEnabled="{Binding CanCheck}" IsThreeState="True"
                                       VerticalAlignment="Center" Margin="0,0,6,0" />
                             <TextBlock Text="{Binding Icon}" FontFamily="Segoe MDL2 Assets" Foreground="#2F6FA8"
                                        VerticalAlignment="Center" Margin="0,0,6,0" />

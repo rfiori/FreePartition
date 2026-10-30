@@ -24,7 +24,7 @@ public partial class MoveDialog : Window
                               "the drive is locked and unmounted while it moves.";
         TxtWarning.Text = $"⚠ {MovePartition.PowerLossWarning}";
 
-        _bar = new MoveBar($"{drive}:  {ByteFormatter.Format(size)}", regionStart, regionEnd, (long)size, (long)used, current);
+        _bar = new MoveBar($"{drive}:", regionStart, regionEnd, (long)size, (long)used, current, ByteFormatter.Format(size));
         _bar.ValueChanged += (_, _) => UpdateDelta();
         BarHost.Content = _bar;
 

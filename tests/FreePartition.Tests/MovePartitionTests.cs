@@ -49,8 +49,24 @@ public class MovePartitionTests
     [InlineData(2048, 1024, 3000, 512)]    // to the left, overlapping, several chunks
     [InlineData(1024, 1536, 4096, 4096)]   // overlapping, a single chunk
     [InlineData(1536, 1024, 4096, 700)]    // chunk that does not divide the length
+    [InlineData(1536, 4096, 2560, 1024)]   // sector-aligned but not 4 KB-aligned source (a realign), overlapping
     public void SectorCopier_KeepsTheDataIntact(long source, long destination, int length, int chunk) =>
         AssertMoveKeepsData(source, destination, length, chunk);
+
+    [Theory]
+    [InlineData(32_256L, 1L << 20, 10L << 20, 512)]      // sector 63 to 1 MB on a 512-byte disk
+    [InlineData(4096L, 1L << 20, 8192L, 4096)]
+    public void SectorCopier_EnsureSectorAligned_AcceptsSectorMultiples(long source, long destination, long length, int sector) =>
+        SectorCopier.EnsureSectorAligned(source, destination, length, sector);
+
+    [Theory]
+    [InlineData(32_256L, 1L << 20, 10L << 20, 4096)]     // a 512-byte offset on a 4Kn disk
+    [InlineData(4096L, 1L << 20, 1000L, 512)]            // length not a sector multiple
+    [InlineData(4096L, 1_000_000L, 4096L, 512)]          // destination not a sector multiple
+    [InlineData(4096L, 1L << 20, 4096L, 0)]              // nonsense sector sizes
+    [InlineData(4096L, 1L << 20, 4096L, 1000)]
+    public void SectorCopier_EnsureSectorAligned_RefusesTheRest(long source, long destination, long length, int sector) =>
+        Assert.Throws<InvalidOperationException>(() => SectorCopier.EnsureSectorAligned(source, destination, length, sector));
 
     [Fact]
     public void SectorCopier_ReportsProgressUpToOne()
@@ -157,6 +173,68 @@ public class MovePartitionTests
         Assert.Throws<InvalidOperationException>(() => layout.CheckMove(2, 30 * MiB, 20 * MiB, 0));                   // inside the first MiB
     }
 
+    private const long Sector63 = 63 * 512;   // where Windows XP and older tools started the first partition
+
+    [Fact]
+    public void DriveLayout_CheckMove_AcceptsASectorAlignedSourceThatIsNotOn4Kb()
+    {
+        var layout = DriveLayout.Parse(BuildLayout(false, (Sector63, 10 * MiB + 512, 1), (30 * MiB, 20 * MiB, 2)), 100 * MiB);
+
+        Assert.Equal(1, layout.CheckMove(1, Sector63, 10 * MiB + 512, 1 * MiB).Number);
+    }
+
+    [Fact]
+    public void DriveLayout_CheckMove_RefusesASourceOffTheSectorGrid()
+    {
+        var layout = DriveLayout.Parse(BuildLayout(false, (Sector63 + 1, 10 * MiB, 1)), 100 * MiB);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => layout.CheckMove(1, Sector63 + 1, 10 * MiB, 20 * MiB));
+        Assert.Contains("sector boundary", ex.Message);
+    }
+
+    [Fact]
+    public void DriveLayout_FindAlignedOffset_Sector63_GoesUpTo1Mb()
+    {
+        // The boundary below (0) is inside the first MB, so the only choice is the one above.
+        var layout = DriveLayout.Parse(BuildLayout(false, (Sector63, 10 * MiB, 1), (30 * MiB, 20 * MiB, 2)), 100 * MiB);
+
+        Assert.Equal(1 * MiB, layout.FindAlignedOffset(1, Sector63, 10 * MiB));
+    }
+
+    [Fact]
+    public void DriveLayout_FindAlignedOffset_PrefersTheBoundaryBefore()
+    {
+        var layout = DriveLayout.Parse(BuildLayout(true, (1 * MiB, 2 * MiB, 1), (5 * MiB + 512, 10 * MiB, 2)), 100 * MiB);
+
+        Assert.Equal(5 * MiB, layout.FindAlignedOffset(2, 5 * MiB + 512, 10 * MiB));
+    }
+
+    [Fact]
+    public void DriveLayout_FindAlignedOffset_UsesTheBoundaryAfter_WhenThePreviousPartitionIsInTheWay()
+    {
+        var layout = DriveLayout.Parse(BuildLayout(true, (1 * MiB, 4 * MiB + 1024, 1), (5 * MiB + 1024, 10 * MiB, 2)), 100 * MiB);
+
+        Assert.Equal(6 * MiB, layout.FindAlignedOffset(2, 5 * MiB + 1024, 10 * MiB));
+    }
+
+    [Fact]
+    public void DriveLayout_FindAlignedOffset_WithNoRoomOnEitherSide_ReturnsNull()
+    {
+        // Partition 2 starts right where partition 1 ends, so 1 MB (the only option) would overlap it.
+        long length = 10 * MiB;
+        var layout = DriveLayout.Parse(BuildLayout(false, (Sector63, length, 1), (Sector63 + length, 20 * MiB, 2)), 100 * MiB);
+
+        Assert.Null(layout.FindAlignedOffset(1, Sector63, length));
+    }
+
+    [Fact]
+    public void DriveLayout_FindAlignedOffset_AlreadyAligned_ReturnsNull() =>
+        Assert.Null(GptDisk().FindAlignedOffset(1, 1 * MiB, 10 * MiB));
+
+    [Fact]
+    public void DriveLayout_FindAlignedOffset_StaleRequest_Throws() =>
+        Assert.Throws<InvalidOperationException>(() => GptDisk().FindAlignedOffset(1, 2 * MiB, 10 * MiB));
+
     [Fact]
     public void DriveLayout_WithMovedPartition_ChangesOnlyTheOffsetAndRewriteFlag()
     {
@@ -231,7 +309,13 @@ public class MovePartitionTests
         Assert.Throws<ArgumentException>(() => new MovePartition(1, 2, 'E', 30 * MiB, 20 * MiB, 30 * MiB).Validate());
         Assert.Throws<ArgumentException>(() => new MovePartition(1, 2, 'E', 30 * MiB, 20 * MiB, 60 * MiB + 1).Validate());
         Assert.Throws<ArgumentException>(() => new MovePartition(1, 2, 'E', 30 * MiB, 20 * MiB, 4096).Validate());
+        Assert.Throws<ArgumentException>(() => new MovePartition(1, 2, 'E', Sector63 + 1, 20 * MiB, 60 * MiB).Validate());
+        Assert.Throws<ArgumentException>(() => new MovePartition(1, 2, 'E', 30 * MiB, 20 * MiB + 1, 60 * MiB).Validate());
     }
+
+    [Fact]
+    public void MovePartition_ASectorAlignedSourceNotOn4Kb_IsAccepted() =>
+        new MovePartition(1, 1, 'E', Sector63, 10 * MiB + 512, 1 * MiB).Validate();
 
     [Fact]
     public async Task MovePartition_Simulation_TouchesNothing()

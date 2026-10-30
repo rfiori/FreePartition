@@ -20,8 +20,14 @@ public sealed class DriveLayout
     /// <summary>The first MiB of a disk (MBR, GPT headers, alignment) is never a destination.</summary>
     public const long FirstUsableOffset = 1L << 20;
 
-    /// <summary>Offsets and sizes must be multiples of this so raw I/O works on 512-byte and 4Kn disks alike.</summary>
+    /// <summary>Destinations must be multiples of this so raw I/O works on 512-byte and 4Kn disks alike.</summary>
     public const long Alignment = 4096;
+
+    /// <summary>
+    /// The smallest logical sector. A partition being moved only has to start and end on this, so the old layouts
+    /// that start at sector 63 can still be moved, which is how they get realigned.
+    /// </summary>
+    public const long MinSectorSize = 512;
 
     private readonly byte[] _data;
 
@@ -86,30 +92,64 @@ public sealed class DriveLayout
     /// <exception cref="InvalidOperationException">The move cannot be done (the message says why).</exception>
     public LayoutPartition CheckMove(int partitionNumber, long expectedOffset, long expectedLength, long newOffset)
     {
+        var current = FindExpected(partitionNumber, expectedOffset, expectedLength);
+        if (DestinationProblem(current, newOffset) is { } problem)
+            throw new InvalidOperationException(problem);
+        return current;
+    }
+
+    /// <summary>
+    /// The nearest 1 MB boundary the partition can be moved to (the one just before it, else the one just after),
+    /// or null when neither fits because the space next to it is taken.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The partition is missing or changed since it was read.</exception>
+    public long? FindAlignedOffset(int partitionNumber, long expectedOffset, long expectedLength)
+    {
+        var current = FindExpected(partitionNumber, expectedOffset, expectedLength);
+        long boundary = (long)PartitionAlignment.Recommended;
+        long down = current.Offset / boundary * boundary;
+        long up = down == current.Offset ? down : down + boundary;
+
+        foreach (long candidate in new[] { down, up })
+        {
+            if (DestinationProblem(current, candidate) is null)
+                return candidate;
+        }
+        return null;
+    }
+
+    /// <summary>The partition is identified by number AND by its offset and size, so a stale request is refused.</summary>
+    private LayoutPartition FindExpected(int partitionNumber, long expectedOffset, long expectedLength)
+    {
         var current = Partitions.Cast<LayoutPartition?>().FirstOrDefault(p => p!.Value.Number == partitionNumber)
                       ?? throw new InvalidOperationException($"Partition {partitionNumber} was not found on the disk.");
 
         if (current.Offset != expectedOffset || current.Length != expectedLength)
             throw new InvalidOperationException("The partition changed since the move was queued. Refresh the disks and queue it again.");
+        return current;
+    }
+
+    /// <summary>Why the partition cannot go to <paramref name="newOffset"/>, or null when it can.</summary>
+    private string? DestinationProblem(LayoutPartition current, long newOffset)
+    {
         if (newOffset == current.Offset)
-            throw new InvalidOperationException("The partition is already at that position.");
-        if (current.Offset % Alignment != 0 || current.Length % Alignment != 0)
-            throw new InvalidOperationException("This partition is not aligned to 4 KB and cannot be moved safely.");
+            return "The partition is already at that position.";
+        if (current.Offset % MinSectorSize != 0 || current.Length % MinSectorSize != 0)
+            return "This partition does not start and end on a sector boundary and cannot be moved safely.";
         if (newOffset % Alignment != 0)
-            throw new InvalidOperationException("The destination is not aligned to 4 KB.");
+            return "The destination is not aligned to 4 KB.";
 
         long end = newOffset + current.Length;
         if (newOffset < Math.Max(UsableStart, FirstUsableOffset) || end > UsableEnd)
-            throw new InvalidOperationException("The destination is outside the usable area of the disk.");
+            return "The destination is outside the usable area of the disk.";
 
         foreach (var other in Partitions)
         {
             if (other.Number == current.Number && other.Index == current.Index) continue;
             if (newOffset < other.Offset + other.Length && other.Offset < end)
-                throw new InvalidOperationException($"The destination overlaps partition {other.Number}.");
+                return $"The destination overlaps partition {other.Number}.";
         }
-
-        return current;
+        return null;
     }
 
     /// <summary>A copy of the layout buffer with the start of one partition changed, ready for SET_DRIVE_LAYOUT_EX.</summary>

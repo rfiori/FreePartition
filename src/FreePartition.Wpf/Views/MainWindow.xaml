@@ -62,11 +62,36 @@
             </Setter>
         </Style>
 
+        <!-- Icon of "Split partition" (the icon font has nothing like it): two blocks with a double arrow cut out -->
+        <CombinedGeometry x:Key="SplitIconGeometry" GeometryCombineMode="Exclude">
+            <CombinedGeometry.Geometry1>
+                <GeometryGroup>
+                    <RectangleGeometry Rect="0.5,1.5,6.9,13" RadiusX="1.6" RadiusY="1.6" />
+                    <RectangleGeometry Rect="8.6,1.5,6.9,13" RadiusX="1.6" RadiusY="1.6" />
+                </GeometryGroup>
+            </CombinedGeometry.Geometry1>
+            <CombinedGeometry.Geometry2>
+                <PathGeometry Figures="M 1.8,8 L 4.8,5 L 4.8,7.1 L 11.2,7.1 L 11.2,5 L 14.2,8 L 11.2,11 L 11.2,8.9 L 4.8,8.9 L 4.8,11 Z" />
+            </CombinedGeometry.Geometry2>
+        </CombinedGeometry>
+
         <Style x:Key="Icon" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="Width" Value="22" />
             <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Heading of a group of operations in the left panel -->
+        <Style x:Key="GroupTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#777777" />
+            <Setter Property="Margin" Value="8,10,8,2" />
+        </Style>
+
+        <Style x:Key="DangerGroupTitle" TargetType="TextBlock" BasedOn="{StaticResource GroupTitle}">
+            <Setter Property="Foreground" Value="#B3261E" />
         </Style>
 
         <Style x:Key="SectionTitle" TargetType="TextBlock">
@@ -285,12 +310,62 @@
 
                     <!-- The list of operations scrolls on short windows so the pending queue below stays visible -->
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel>
+                    <StackPanel x:Name="OperationsPanel">
+                        <TextBlock Text="INSPECT" Style="{StaticResource GroupTitle}" />
+                        <Button x:Name="OpExplore" Style="{StaticResource OperationItem}" Click="OpExplore_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE838;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Explore partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpProperties" Style="{StaticResource OperationItem}" Click="OpProperties_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Properties" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpRecover" Style="{StaticResource OperationItem}" Click="BtnRecoverFiles_Click"
+                                Background="#D9F0DF" ToolTip="Look for deleted files on the selected drive (NTFS)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE721;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Recover files" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="CREATE" Style="{StaticResource GroupTitle}" />
+                        <Button x:Name="OpInitialize" Style="{StaticResource OperationItem}" Click="OpInitialize_Click"
+                                ToolTip="Initialize the selected blank disk as MBR or GPT">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9F5;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Initialize disk" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpCreate" Style="{StaticResource OperationItem}" Click="OpCreate_Click"
+                                ToolTip="Create a partition in the selected unallocated space">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Create partition" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="SIZE AND POSITION" Style="{StaticResource GroupTitle}" />
                         <Button x:Name="OpResize" Style="{StaticResource OperationItem}" Click="OpResize_Click"
                                 ToolTip="Extend or shrink the selected partition">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE740;" Foreground="{StaticResource Accent}" />
                                 <TextBlock Text="Resize partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpMove" Style="{StaticResource OperationItem}" Click="OpMove_Click"
+                                ToolTip="Move the selected partition into free space on the same disk (data is lost if interrupted)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8AB;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Move partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpAlign" Style="{StaticResource OperationItem}" Click="OpAlign_Click"
+                                ToolTip="Move a partition that is not aligned to 4 KB to the nearest 1 MB boundary (data is lost if interrupted)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8E4;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Align partition" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="OpMerge" Style="{StaticResource OperationItem}" Click="OpMerge_Click"
@@ -303,17 +378,12 @@
                         <Button x:Name="OpSplit" Style="{StaticResource OperationItem}" Click="OpSplit_Click"
                                 ToolTip="Split the selected partition in two, using its free space">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8A1;" Foreground="{StaticResource Accent}" />
+                                <Path Data="{StaticResource SplitIconGeometry}" Fill="{StaticResource Accent}"
+                                      Width="14" Height="14" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Center" />
                                 <TextBlock Text="Split partition" />
                             </StackPanel>
                         </Button>
-                        <Button x:Name="OpMove" Style="{StaticResource OperationItem}" Click="OpMove_Click"
-                                ToolTip="Move the selected partition into free space on the same disk (data is lost if interrupted)">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8AB;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Move partition" />
-                            </StackPanel>
-                        </Button>
+                        <TextBlock Text="SETTINGS" Style="{StaticResource GroupTitle}" />
                         <Button x:Name="OpLabel" Style="{StaticResource OperationItem}" Click="OpLabel_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE8AC;" Foreground="{StaticResource Accent}" />
@@ -326,46 +396,11 @@
                                 <TextBlock Text="Change letter" />
                             </StackPanel>
                         </Button>
-                        <Button x:Name="OpFormat" Style="{StaticResource OperationItem}" Click="OpFormat_Click"
-                                ToolTip="Erases all data on the partition">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Format partition" />
-                            </StackPanel>
-                        </Button>
                         <Button x:Name="OpConvert" Style="{StaticResource OperationItem}" Click="OpConvert_Click"
                                 ToolTip="Convert the selected partition between FAT32 and NTFS keeping its files">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE895;" Foreground="{StaticResource Accent}" />
                                 <TextBlock Text="Convert FAT32 / NTFS" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="OpCreate" Style="{StaticResource OperationItem}" Click="OpCreate_Click"
-                                ToolTip="Create a partition in the selected unallocated space">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE710;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Create partition" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="OpInitialize" Style="{StaticResource OperationItem}" Click="OpInitialize_Click"
-                                ToolTip="Initialize the selected blank disk as MBR or GPT">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9F5;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Initialize disk" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="OpDelete" Style="{StaticResource OperationItem}" Click="OpDelete_Click"
-                                ToolTip="Erases all data on the partition">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Delete partition" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="OpCheck" Style="{StaticResource OperationItem}" Click="OpCheck_Click"
-                                ToolTip="Check the selected volume for file system errors (chkdsk)">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Check for errors" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="OpActive" Style="{StaticResource OperationItem}" Click="OpActive_Click"
@@ -389,16 +424,48 @@
                                 <TextBlock Text="Show partition" />
                             </StackPanel>
                         </Button>
-                        <Button x:Name="OpExplore" Style="{StaticResource OperationItem}" Click="OpExplore_Click">
+                        <TextBlock Text="MAINTENANCE" Style="{StaticResource GroupTitle}" />
+                        <Button x:Name="OpCheck" Style="{StaticResource OperationItem}" Click="OpCheck_Click"
+                                ToolTip="Check the selected volume for file system errors (chkdsk)">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE838;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Explore partition" />
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Check for errors" />
                             </StackPanel>
                         </Button>
-                        <Button x:Name="OpProperties" Style="{StaticResource OperationItem}" Click="OpProperties_Click">
+                        <TextBlock Text="DESTRUCTIVE" Style="{StaticResource DangerGroupTitle}" />
+                        <Button x:Name="OpFormat" Style="{StaticResource OperationItem}" Click="OpFormat_Click"
+                                ToolTip="Erases all data on the partition">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Properties" />
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Format partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpDelete" Style="{StaticResource OperationItem}" Click="OpDelete_Click"
+                                ToolTip="Erases all data on the partition">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE74D;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Delete partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpWipeFree" Style="{StaticResource OperationItem}" Click="OpWipeFree_Click"
+                                ToolTip="Overwrite the free space of the selected drive so deleted files cannot be recovered (files are kept)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE894;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Wipe free space" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpWipe" Style="{StaticResource OperationItem}" Click="OpWipe_Click"
+                                ToolTip="Overwrite every sector of the selected partition so nothing on it can be recovered">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE75C;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Wipe partition" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpWipeDisk" Style="{StaticResource OperationItem}" Click="OpWipeDisk_Click"
+                                ToolTip="Delete every partition of the selected disk and overwrite all of its sectors">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xEDA2;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Wipe disk" />
                             </StackPanel>
                         </Button>
                     </StackPanel>

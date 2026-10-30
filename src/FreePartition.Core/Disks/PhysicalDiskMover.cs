@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using static FreePartition.Core.Disks.DiskIo;
 
 namespace FreePartition.Core.Disks;
 
@@ -16,30 +17,18 @@ public interface IPartitionMover
 }
 
 /// <summary>
-/// The one place that WRITES to a physical disk outside the PowerShell cmdlets. Order of events, so that the risky
+/// Writes to a physical disk outside the PowerShell cmdlets to move a partition. Order of events, so that the risky
 /// window is as short as possible:
 /// 1. check the partition table and that the drive letter really is that partition (nothing written yet);
 /// 2. lock and dismount the volume (fails if something is using it);
 /// 3. copy the sectors (if the power dies here the data is corrupted);
 /// 4. rewrite the start of the partition in the partition table; if that fails, copy everything back.
 /// </summary>
-public sealed partial class PhysicalDiskMover : IPartitionMover
+public sealed class PhysicalDiskMover : IPartitionMover
 {
-    private const uint GenericRead = 0x80000000;
-    private const uint GenericWrite = 0x40000000;
-    private const uint ShareReadWrite = 0x3;
-    private const uint OpenExisting = 3;
-
     private const uint IoctlDiskGetDriveLayoutEx = 0x00070050;
     private const uint IoctlDiskSetDriveLayoutEx = 0x0007C054;
-    private const uint IoctlDiskUpdateProperties = 0x00070140;
-    private const uint IoctlDiskGetLengthInfo = 0x0007405C;
-    private const uint IoctlVolumeGetVolumeDiskExtents = 0x00560000;
-    private const uint FsctlLockVolume = 0x00090018;
-    private const uint FsctlDismountVolume = 0x00090020;
-    private const uint FsctlAllowExtendedDasdIo = 0x00090083;
     private const int ErrorInsufficientBuffer = 122;
-    private const int ErrorMoreData = 234;
 
     public void Move(PartitionMoveRequest request, IProgress<string>? progress)
     {
@@ -47,9 +36,10 @@ public sealed partial class PhysicalDiskMover : IPartitionMover
         char letter = char.ToUpperInvariant(request.Drive);
 
         using var disk = OpenDevice($@"\\.\PhysicalDrive{request.DiskNumber}", GenericRead | GenericWrite);
-        long diskLength = ReadDiskLength(disk);
+        long diskLength = ReadLength(disk);
         var layout = DriveLayout.Parse(ReadLayout(disk), diskLength);
         var partition = layout.CheckMove(request.PartitionNumber, request.SourceOffset, request.Length, request.DestinationOffset);
+        SectorCopier.EnsureSectorAligned(request.SourceOffset, request.DestinationOffset, request.Length, ReadSectorSize(disk));
 
         using var volume = OpenDevice($@"\\.\{letter}:", GenericRead | GenericWrite);
         CheckVolumeIsThePartition(volume, letter, request);
@@ -81,11 +71,7 @@ public sealed partial class PhysicalDiskMover : IPartitionMover
         catch (UnauthorizedAccessException) when (!wroteSomething)
         {
             // Nothing was written yet: Windows (or an antivirus) refused the very first write to the disk.
-            throw new InvalidOperationException(
-                "Windows blocked FreePartition from writing to the disk, most likely Controlled folder access " +
-                "(ransomware protection) or an antivirus. Nothing was changed. Allow FreePartition.exe in Windows " +
-                "Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled " +
-                $"folder access, then queue the move again. {letter}: may need to be reopened to be mounted again.");
+            throw new InvalidOperationException(WriteBlockedMessage("queue the move again", letter));
         }
         catch (Exception ex) when (wroteSomething && ex is IOException or UnauthorizedAccessException)
         {
@@ -111,7 +97,14 @@ public sealed partial class PhysicalDiskMover : IPartitionMover
         progress?.Report("Partition table updated.");
     }
 
-    private sealed class SyncProgress(Action<double> onReport) : IProgress<double>
+    /// <summary>What to tell the user when Windows refuses the very first raw write (nothing was changed).</summary>
+    internal static string WriteBlockedMessage(string retry, char letter) =>
+        "Windows blocked FreePartition from writing to the disk, most likely Controlled folder access " +
+        "(ransomware protection) or an antivirus. Nothing was changed. Allow FreePartition.exe in Windows " +
+        "Security > Virus & threat protection > Ransomware protection > Allow an app through Controlled " +
+        $"folder access, then {retry}. {letter}: may need to be reopened to be mounted again.";
+
+    internal sealed class SyncProgress(Action<double> onReport) : IProgress<double>
     {
         public void Report(double value) => onReport(value);
     }
@@ -121,15 +114,8 @@ public sealed partial class PhysicalDiskMover : IPartitionMover
     /// <summary>The drive letter must be exactly the partition we are about to move (one extent, same start).</summary>
     private static void CheckVolumeIsThePartition(SafeFileHandle volume, char letter, PartitionMoveRequest request)
     {
-        var buffer = new byte[8 + 24 * 8];
-        if (!DeviceIoControl(volume, IoctlVolumeGetVolumeDiskExtents, default, 0, buffer, buffer.Length, out _, IntPtr.Zero)
-            && Marshal.GetLastPInvokeError() != ErrorMoreData)
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"Could not identify the partition of {letter}:.");
-
-        uint count = BitConverter.ToUInt32(buffer, 0);
-        int disk = BitConverter.ToInt32(buffer, 8);
-        long start = BitConverter.ToInt64(buffer, 16);
-        if (count != 1 || disk != request.DiskNumber || start != request.SourceOffset)
+        var extents = ReadVolumeExtents(volume, $"{letter}:");
+        if (extents.Count != 1 || extents[0].Disk != request.DiskNumber || extents[0].Start != request.SourceOffset)
             throw new InvalidOperationException(
                 $"{letter}: is not the partition that was selected (the disks changed). Refresh and queue the move again.");
     }
@@ -142,7 +128,7 @@ public sealed partial class PhysicalDiskMover : IPartitionMover
     public static DriveLayout LoadLayout(int diskNumber)
     {
         using var disk = OpenDevice($@"\\.\PhysicalDrive{diskNumber}", GenericRead);
-        return DriveLayout.Parse(ReadLayout(disk), ReadDiskLength(disk));
+        return DriveLayout.Parse(ReadLayout(disk), ReadLength(disk));
     }
 
     private static byte[] ReadLayout(SafeFileHandle disk)
@@ -163,40 +149,4 @@ public sealed partial class PhysicalDiskMover : IPartitionMover
         if (!DeviceIoControl(disk, IoctlDiskSetDriveLayoutEx, layout, layout.Length, default, 0, out _, IntPtr.Zero))
             throw new Win32Exception(Marshal.GetLastPInvokeError());
     }
-
-    private static long ReadDiskLength(SafeFileHandle disk)
-    {
-        var buffer = new byte[8];
-        if (!DeviceIoControl(disk, IoctlDiskGetLengthInfo, default, 0, buffer, buffer.Length, out _, IntPtr.Zero))
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not read the size of the disk.");
-        return BitConverter.ToInt64(buffer, 0);
-    }
-
-    private static bool Control(SafeFileHandle handle, uint code) =>
-        DeviceIoControl(handle, code, default, 0, default, 0, out _, IntPtr.Zero);
-
-    private static SafeFileHandle OpenDevice(string path, uint access)
-    {
-        var handle = CreateFile(path, access, ShareReadWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
-        if (handle.IsInvalid)
-        {
-            int error = Marshal.GetLastPInvokeError();
-            handle.Dispose();
-            throw new Win32Exception(error, $"Could not open {path} (run as administrator).");
-        }
-        return handle;
-    }
-
-    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    private static partial SafeFileHandle CreateFile(
-        string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes,
-        uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool DeviceIoControl(
-        SafeFileHandle hDevice, uint dwIoControlCode,
-        ReadOnlySpan<byte> lpInBuffer, int nInBufferSize,
-        Span<byte> lpOutBuffer, int nOutBufferSize,
-        out int lpBytesReturned, IntPtr lpOverlapped);
 }

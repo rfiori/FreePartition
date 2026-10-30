@@ -18,6 +18,8 @@ public sealed class FileRecoverer
     {
         if (!file.IsRecoverable)
             throw new InvalidOperationException("This file cannot be recovered (compressed, encrypted or without data).");
+        if (!file.CanRecover)
+            throw new InvalidOperationException("This file cannot be recovered: its data was overwritten with zeros.");
 
         string destinationRoot = Path.GetPathRoot(Path.GetFullPath(destinationFolder)) ?? "";
         if (destinationRoot.StartsWith(result.Drive + ":", StringComparison.OrdinalIgnoreCase))

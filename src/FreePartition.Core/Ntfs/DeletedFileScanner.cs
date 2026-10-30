@@ -97,8 +97,50 @@ public sealed class DeletedFileScanner
                 ResidentData: record.ResidentData));
         }
 
+        // 6) Free clusters that hold nothing but zeros were wiped: say so instead of promising a recovery
+        MarkOverwritten(volume, files, boot.BytesPerCluster, analyzed, totalRecords, progress, ct);
+
         stopwatch.Stop();
         return new ScanResult(volume.Drive, boot.BytesPerCluster, analyzed, stopwatch.Elapsed, files);
+    }
+
+    /// <summary>
+    /// Looks at the start, middle and end of every file that has clusters to read and marks those that are all zeros
+    /// as <see cref="RecoveryChance.Overwritten"/>. The files are visited in disk order, which keeps the number of
+    /// seeks low on a hard disk. Read-only.
+    /// </summary>
+    private static void MarkOverwritten(RawVolume volume, List<DeletedFile> files, int bytesPerCluster,
+        long analyzed, long totalRecords, IProgress<ScanProgress>? progress, CancellationToken ct)
+    {
+        var candidates = Enumerable.Range(0, files.Count)
+            .Where(i => files[i] is { ResidentData: null, Size: > 0, Runs.Count: > 0, Chance: not RecoveryChance.Unavailable })
+            .OrderBy(i => FirstLcn(files[i].Runs))
+            .ToList();
+
+        int done = 0;
+        foreach (int i in candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var file = files[i];
+            var reader = new RunReader(volume, file.Runs, bytesPerCluster, file.Size);
+            if (OverwriteCheck.IsZeroFilled(reader.Read, file.Size))
+                files[i] = file with { Chance = RecoveryChance.Overwritten };
+
+            done++;
+            if (done % 128 == 0 || done == candidates.Count)
+                progress?.Report(new ScanProgress(analyzed, totalRecords, files.Count,
+                    $"Checking whether the data was overwritten... {done:N0} of {candidates.Count:N0}"));
+        }
+    }
+
+    private static long FirstLcn(IReadOnlyList<DataRun> runs)
+    {
+        foreach (var run in runs)
+        {
+            if (!run.IsSparse) return run.Lcn;
+        }
+        return long.MaxValue;
     }
 
     private static byte[]? LoadBitmap(RawVolume volume, RunReader mftReader, NtfsBootSector boot)
