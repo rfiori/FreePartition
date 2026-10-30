@@ -53,6 +53,8 @@
 | **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, tells SSDs from HDDs and flags partitions that are not aligned to 4 KB. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
 | **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
 | **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, align a partition to 1 MB, wipe a partition, a disk or free space, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair), convert FAT32 ↔ NTFS keeping the files. Also available from the right-click menu. |
+| **Verify wipe** | Read-only scan of a whole volume (Inspect → Verify wipe), also on a RAW one: counts the bytes that are not zero, shows where the first one is with a hex dump, and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
+| **Cluster map** | Read-only grid of a whole volume (Inspect → Cluster map), also on a RAW one: each square is classified as zero, data or unreadable from three 4 KB samples, and clicking a square shows its byte range, its NTFS clusters and a hex dump. |
 | **Disk health** | Read-only report per disk (Tools → Disk health): overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 | **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation* (simulation is on by default), plus a log in `%LocalAppData%\FreePartition\operations.log` that you can show in the app or open from the Tools menu. |
 
@@ -186,7 +188,7 @@ Directory.Build.props                  # TargetFramework and shared options
 src/FreePartition.Core/                # all logic, no UI, testable without a real disk
   Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models,
                DriveLayout + SectorCopier + PhysicalDiskMover (move partition), PartitionAlignment,
-               SectorWiper + FreeSpaceWiper + PhysicalDiskWiper (wipe), DiskIo (shared raw Windows calls)
+               SectorWiper + FreeSpaceWiper + PhysicalDiskWiper (wipe), WipeVerifier (verify wipe), ClusterMap, DiskIo (shared raw Windows calls)
   Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
   Operations/  DiskOperation (+ types), WipeOperations, ConvertVolume (FAT32 ↔ NTFS), OperationQueue, PowerShellExecutor, OperationLog
   Util/        ByteFormatter

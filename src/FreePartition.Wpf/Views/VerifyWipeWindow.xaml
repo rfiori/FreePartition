@@ -1,0 +1,35 @@
+<Window x:Class="FreePartition.Wpf.VerifyWipeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Verify wipe" Width="560" Height="560" MinWidth="460" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Background="White">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="BtnStart" Content="Start" Padding="22,4" Click="Start_Click" />
+            <Button x:Name="BtnCancel" Content="Cancel" Padding="18,4" Margin="8,0,0,0" IsEnabled="False" Click="Cancel_Click" />
+            <Button x:Name="BtnCopy" Content="Copy result" Padding="14,4" Margin="8,0,0,0" IsEnabled="False" Click="Copy_Click" />
+            <Button Content="Close" IsCancel="True" Padding="26,4" Margin="8,0,0,0" Click="Close_Click" />
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock x:Name="TxtTitle" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock x:Name="TxtSubtitle" Foreground="DimGray" Margin="0,2,0,0" />
+            <TextBlock TextWrapping="Wrap" Foreground="#555" Margin="0,12,0,0"
+                       Text="Reads the whole volume (read-only) and checks that nothing is left: how many bytes are not zero, where the first one is, and whether a file system signature survived. A wiped partition shows as not formatted in Explorer, but so does a quick format, so this reads the actual bytes." />
+            <ProgressBar x:Name="Bar" Height="18" Margin="0,14,0,0" Minimum="0" Maximum="1" />
+            <TextBlock x:Name="TxtStatus" Foreground="DimGray" Margin="0,4,0,0" />
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+            <StackPanel>
+                <Border x:Name="VerdictBox" Visibility="Collapsed" Padding="12,10" Margin="0,6,0,0" BorderThickness="1">
+                    <TextBlock x:Name="TxtVerdict" TextWrapping="Wrap" FontSize="14" FontWeight="SemiBold" />
+                </Border>
+                <TextBlock x:Name="TxtDetails" TextWrapping="Wrap" Margin="0,10,0,0" />
+                <TextBlock x:Name="TxtDumpTitle" Text="First data found (512 bytes)" FontWeight="SemiBold" Margin="0,14,0,4" Visibility="Collapsed" />
+                <TextBox x:Name="TxtDump" IsReadOnly="True" FontFamily="Consolas" FontSize="11" Visibility="Collapsed"
+                         HorizontalScrollBarVisibility="Auto" Background="#F7F7F7" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -324,6 +324,20 @@
                                 <TextBlock Text="Properties" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpVerifyWipe" Style="{StaticResource OperationItem}" Click="OpVerifyWipe_Click"
+                                ToolTip="Read the whole volume (read-only) and check that nothing is left after a wipe">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Verify wipe" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpClusterMap" Style="{StaticResource OperationItem}" Click="OpClusterMap_Click"
+                                ToolTip="Draw the volume as a grid and look at the bytes of any square (read-only)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xF0E2;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Cluster map" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpRecover" Style="{StaticResource OperationItem}" Click="BtnRecoverFiles_Click"
                                 Background="#D9F0DF" ToolTip="Look for deleted files on the selected drive (NTFS)">
                             <StackPanel Orientation="Horizontal">

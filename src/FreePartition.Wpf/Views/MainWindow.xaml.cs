@@ -425,6 +425,8 @@ public partial class MainWindow : Window
         OpExplore.IsEnabled = hasLetter;
         OpRecover.IsEnabled = hasLetter;
         OpProperties.IsEnabled = Selected is { Unallocated: false };
+        OpVerifyWipe.IsEnabled = hasLetter;
+        OpClusterMap.IsEnabled = hasLetter;
     }
 
     private async void OpResize_Click(object sender, RoutedEventArgs e)
@@ -1053,6 +1055,18 @@ public partial class MainWindow : Window
         var disk = _disks.FirstOrDefault(d => d.Index == p.DiskIndex);
         var partition = disk?.Partitions.FirstOrDefault(x => x.Number == p.PartitionNumber);
         new PropertiesWindow(p, disk, partition) { Owner = this }.Show();
+    }
+
+    private void OpVerifyWipe_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is { Unallocated: false, Letter: not null } p)
+            new VerifyWipeWindow(p) { Owner = this }.Show();
+    }
+
+    private void OpClusterMap_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is { Unallocated: false, Letter: not null } p)
+            new ClusterMapWindow(p) { Owner = this }.Show();
     }
 
     /// <summary>Parses a size field (bytes, invariant culture); empty = extend to the maximum.</summary>
