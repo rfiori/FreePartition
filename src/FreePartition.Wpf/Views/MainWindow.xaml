@@ -437,6 +437,13 @@
                                 <TextBlock Text="Convert FAT32 / NTFS" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpConvertStyle" Style="{StaticResource OperationItem}" Click="OpConvertStyle_Click"
+                                ToolTip="Convert the selected disk between MBR and GPT keeping its partitions and files (only the partition table is rewritten)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE895;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Convert MBR / GPT" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpActive" Style="{StaticResource OperationItem}" Click="OpActive_Click"
                                 ToolTip="Mark the selected MBR partition as active (bootable)">
                             <StackPanel Orientation="Horizontal">

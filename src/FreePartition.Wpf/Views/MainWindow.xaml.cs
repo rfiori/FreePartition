@@ -440,6 +440,7 @@ public partial class MainWindow : Window
         OpLetter.IsEnabled = hasLetter;
         OpFormat.IsEnabled = hasLetter;
         OpConvert.IsEnabled = hasLetter && Selected is { FileSystem: "FAT32" or "NTFS" };
+        OpConvertStyle.IsEnabled = Selected is not null;   // any row of the disk; it explains why a disk cannot be converted
         OpDelete.IsEnabled = hasLetter;
         OpWipe.IsEnabled = hasLetter && Selected is { PartitionNumber: > 0 };
         OpWipeFree.IsEnabled = hasLetter;
@@ -805,6 +806,68 @@ public partial class MainWindow : Window
 
         TryQueue(new ClonePartition(row.DiskIndex, row.PartitionNumber, letter, (long)row.Offset, length,
             target.Disk, target.Offset, ConvertFileSystem(row.FileSystem), copyLetter));
+    }
+
+    private async void OpConvertStyle_Click(object sender, RoutedEventArgs e)
+    {
+        const string title = "Convert MBR / GPT";
+        if (Selected is not { } selected || _disks.FirstOrDefault(d => d.Index == selected.DiskIndex) is not { } disk) return;
+
+        DiskPartitionStyle? target = disk.PartitionStyle switch
+        {
+            "MBR" => DiskPartitionStyle.GPT,
+            "GPT" => DiskPartitionStyle.MBR,
+            _ => null
+        };
+        if (target is not { } style)
+        {
+            MessageBox.Show(this, $"Disk {disk.Index} has no MBR or GPT partition table to convert. Use \"Initialize disk\" on a blank disk.",
+                title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var rows = DisksGrid.Items.OfType<PartitionRow>()
+            .Where(r => r.DiskIndex == disk.Index && r.Letter is not null && r.PartitionNumber > 0).ToList();
+        if (_systemLetter is { } system && rows.Any(r => r.Letter == system))
+        {
+            MessageBox.Show(this, $"Disk {disk.Index} holds the Windows drive ({system}:). Which style it uses decides how the " +
+                "computer boots, so it is not converted here. Use Microsoft's mbr2gpt.exe for the disk Windows boots from.",
+                title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // Read-only look at the table: explains up front why the disk cannot be converted.
+        Cursor = Cursors.Wait;
+        SetBusy(true);
+        string? problem = null;
+        try
+        {
+            await Task.Run(() => PhysicalLayoutConverter.Check(disk.Index, style));
+        }
+        catch (Exception ex)
+        {
+            problem = ex is InvalidOperationException ? ex.Message : $"Could not read the partition table of disk {disk.Index}: {ex.Message}";
+        }
+        finally
+        {
+            Cursor = null;
+            SetBusy(false);
+        }
+        if (problem is not null)
+        {
+            MessageBox.Show(this, problem, title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        string drives = rows.Count == 0 ? "no drive letters" : string.Join(", ", rows.Select(r => $"{r.Letter}:"));
+        var answer = MessageBox.Show(this,
+            $"Convert disk {disk.Index} ({disk.Model}, {ByteFormatter.Format(disk.Size)}; {drives}) from {disk.PartitionStyle} to {style}?\n\n" +
+            ConvertPartitionStyle.WarningFor(style),
+            title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        TryQueue(new ConvertPartitionStyle(disk.Index, style,
+            rows.Select(r => new DriveMount(r.Letter!.Value, (long)r.Offset)).ToList()));
     }
 
     private void OpLabel_Click(object sender, RoutedEventArgs e) =>
@@ -1316,7 +1379,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Operations that write sectors directly, which Controlled folder access blocks.</summary>
-    private static bool WritesRawSectors(DiskOperation operation) => operation is MovePartition or WipePartition or WipeDisk or RestorePartition or ClonePartition;
+    private static bool WritesRawSectors(DiskOperation operation) => operation is MovePartition or WipePartition or WipeDisk or RestorePartition or ClonePartition or ConvertPartitionStyle;
 
     private void OpenControlledFolderAccessSettings()
     {

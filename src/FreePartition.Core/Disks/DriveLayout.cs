@@ -10,7 +10,7 @@ public readonly record struct LayoutPartition(int Index, long Offset, long Lengt
 /// what IOCTL_DISK_SET_DRIVE_LAYOUT_EX takes back. It works on plain bytes so it can be tested without a disk.
 /// Moving a partition changes nothing but one StartingOffset: every other byte is sent back exactly as read.
 /// </summary>
-public sealed class DriveLayout
+public sealed partial class DriveLayout
 {
     private const int HeaderSize = 48;
     private const int EntrySize = 144;
@@ -46,8 +46,12 @@ public sealed class DriveLayout
     }
 
     /// <param name="diskLength">Size of the disk, used as the limit of an MBR disk.</param>
+    /// <param name="allowExtended">
+    /// Accept an MBR extended partition: its container entry is left out of <see cref="Partitions"/> and the logical
+    /// partitions inside it are listed. Only the partition style conversion can handle that; moving cannot.
+    /// </param>
     /// <exception cref="InvalidDataException">Not a valid MBR or GPT layout.</exception>
-    public static DriveLayout Parse(ReadOnlySpan<byte> buffer, long diskLength)
+    public static DriveLayout Parse(ReadOnlySpan<byte> buffer, long diskLength, bool allowExtended = false)
     {
         if (buffer.Length < HeaderSize)
             throw new InvalidDataException("The drive layout is too short.");
@@ -76,7 +80,11 @@ public sealed class DriveLayout
 
             // Extended partitions hold logical ones chained through EBRs, which this code does not rewrite.
             if (!gpt && entry[32] is 0x05 or 0x0F or 0x85)
-                throw new InvalidDataException("Disks with extended partitions are not supported.");
+            {
+                if (!allowExtended)
+                    throw new InvalidDataException("Disks with extended partitions are not supported.");
+                continue;   // the container holds no data of its own; its logical partitions are listed separately
+            }
 
             partitions.Add(new LayoutPartition(i, BinaryPrimitives.ReadInt64LittleEndian(entry[8..]), length,
                 (int)BinaryPrimitives.ReadUInt32LittleEndian(entry[24..])));

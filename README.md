@@ -125,6 +125,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Change label** | Changes the volume label. |
 | **Change letter** | Changes the drive letter. |
 | **Convert FAT32 / NTFS** | Converts the selected partition between FAT32 and NTFS, keeping its files. |
+| **Convert MBR / GPT** | Converts the selected disk between MBR and GPT, keeping every partition and its files: only the partition table is rewritten (see below). |
 | **Set active** | Marks the selected MBR partition as active (bootable). |
 | **Hide partition** | Removes the drive letter; the data stays untouched. |
 | **Show partition** | Gives a drive letter to a hidden partition. |
@@ -152,7 +153,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
-Not implemented yet: SSD firmware Secure Erase, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -270,7 +271,7 @@ The guarantees the code is built around:
 - Formatting or changing the drive letter of the **Windows drive** is blocked.
 - PowerShell scripts are generated only from validated values (drive letter, numeric size,
   file system from a closed list, label with restricted characters) — no command injection.
-- **Move partition, Restore partition and the wipe operations are the only exceptions to "nothing is written outside the PowerShell
+- **Move partition, Restore partition, Clone partition, Convert MBR / GPT and the wipe operations are the only exceptions to "nothing is written outside the PowerShell
   cmdlets"**, because Windows has no cmdlet for them. Move partition exists because no cmdlet changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
   only inside the partition's own space plus free space of the same disk (the table is checked first, and the drive
   letter must be exactly the selected partition), with the volume locked and unmounted. If the partition table
@@ -290,6 +291,12 @@ The guarantees the code is built around:
   volume and writes only into unallocated space (the destination table is checked before the first write), so a failure
   leaves the original as it was; it can be canceled while it copies. It writes the table entry last, after the copy.
 - The queue stops at the first failure; the remaining operations stay pending.
+- **Convert MBR / GPT** only runs after **Apply**, and never on the disk that holds Windows or the app itself (checked by
+  the queue, through the drive letters, and again right before writing, failing closed). It rewrites nothing but the
+  sectors of the partition tables, at the start and the end of the disk; every partition keeps its offset and size, and
+  no sector inside a partition is written. The new table is worked out and checked first (the whole conversion is
+  refused, with the reason, if anything would not fit or has no equivalent in the other style), the old table's
+  sectors are saved, and if writing the new one fails they are put back. The table is read back and compared at the end.
 - **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
 
@@ -328,7 +335,7 @@ The guarantees the code is built around:
 **Advanced (high risk — needs heavy VM/VHD testing)**
 - ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
 - ✅ Clone partition (same or another disk, into unallocated space; not yet run on a VHD)
-- ⚪ Convert MBR ↔ GPT without data loss
+- ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from; not yet run on a VHD)
 - ⚪ Migrate Windows to another SSD/HDD
 - ⚪ Rebuild MBR/BCD, bootable media (WinPE)
 
@@ -360,6 +367,13 @@ The guarantees the code is built around:
   large as the partition (the copy keeps the original size; resize it afterwards). The copy has the same volume serial
   number as the original, and a clone on an MBR disk needs a free primary slot (extended partitions are not supported).
   Not yet run on a real disk: test it on a VHD first.
+- Convert MBR / GPT: not the disk Windows boots from (use Microsoft's `mbr2gpt.exe` for that one; booting depends on the
+  style). MBR → GPT needs 34 sectors free at the start and 33 at the end of the disk (shrink the last partition by 1 MB
+  if it reaches the end), turns logical partitions into ordinary ones, and drops the active flag; it refuses dynamic
+  disks and partition types GPT has no equivalent for. GPT → MBR needs at most four partitions (the Microsoft Reserved
+  one is dropped), none past 2 TB, and only the types Windows, EFI, recovery and Linux use. Volumes without a drive
+  letter are not locked while the table is written. Windows gives the partitions new identities, so drive letters may
+  change (the app tries to give them back). Not yet run on a real disk: test it on a VHD first.
 - The partition "Type" column only shows Primary / EFI / Other: WMI does not distinguish logical partitions.
 - The UI is code-behind (no MVVM yet).
 

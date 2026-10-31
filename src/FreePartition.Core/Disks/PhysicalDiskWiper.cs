@@ -149,7 +149,7 @@ public sealed class PhysicalDiskWiper : IDiskWiper
     }
 
     /// <summary>The drive Windows runs from and the drive this program runs from.</summary>
-    private static IEnumerable<(char Letter, string What)> ProtectedDrives()
+    internal static IEnumerable<(char Letter, string What)> ProtectedDrives()
     {
         if (LetterOf(Environment.SystemDirectory) is { } windows)
             yield return (windows, "Windows");
