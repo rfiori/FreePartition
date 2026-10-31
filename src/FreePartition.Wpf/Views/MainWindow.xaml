@@ -186,6 +186,12 @@
                                    Width="Auto" HorizontalAlignment="Center" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem Header="Recover lost partitions…" Click="OpRecoverPartitions_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE777;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click">
                     <MenuItem.Icon>
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE95E;" Foreground="{StaticResource Accent}"
@@ -343,6 +349,13 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE721;" Foreground="{StaticResource Accent}" />
                                 <TextBlock Text="Recover files" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OpRecoverPartitions" Style="{StaticResource OperationItem}" Click="OpRecoverPartitions_Click"
+                                ToolTip="Look for partitions missing from the partition table and put them back (read-only until you click Apply)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE777;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Recover partitions" />
                             </StackPanel>
                         </Button>
                         <TextBlock Text="CREATE" Style="{StaticResource GroupTitle}" />

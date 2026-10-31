@@ -451,6 +451,7 @@ public partial class MainWindow : Window
         OpShow.IsEnabled = Selected is { Unallocated: false, Letter: null, PartitionNumber: > 0 };
         OpExplore.IsEnabled = hasLetter;
         OpRecover.IsEnabled = hasLetter;
+        OpRecoverPartitions.IsEnabled = _disks.Count > 0;   // the window lets you pick the disk
         OpProperties.IsEnabled = Selected is { Unallocated: false };
         OpVerifyWipe.IsEnabled = hasLetter;
         OpClusterMap.IsEnabled = hasLetter;
@@ -1253,7 +1254,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Operations that write sectors directly, which Controlled folder access blocks.</summary>
-    private static bool WritesRawSectors(DiskOperation operation) => operation is MovePartition or WipePartition or WipeDisk;
+    private static bool WritesRawSectors(DiskOperation operation) => operation is MovePartition or WipePartition or WipeDisk or RestorePartition;
 
     private void OpenControlledFolderAccessSettings()
     {
@@ -1295,6 +1296,12 @@ public partial class MainWindow : Window
     {
         var window = new RecoveryWindow(Selected?.Letter) { Owner = this };
         window.Show();
+    }
+
+    private void OpRecoverPartitions_Click(object sender, RoutedEventArgs e)
+    {
+        if (_disks.Count == 0) return;
+        new LostPartitionsWindow(_disks, Selected?.DiskIndex ?? _disks[0].Index, TryQueue) { Owner = this }.Show();
     }
 
     private void MenuShowLog_Changed(object sender, RoutedEventArgs e) =>

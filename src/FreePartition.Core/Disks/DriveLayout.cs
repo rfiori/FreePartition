@@ -152,6 +152,71 @@ public sealed class DriveLayout
         return null;
     }
 
+    private const int GptTypeOffset = 32, GptIdOffset = 48, GptNameOffset = 72, GptNameChars = 36;
+    private static readonly Guid BasicDataType = new("EBD0A0A2-B9E5-4433-87C0-68B6B72699C7");
+
+    /// <summary>
+    /// A copy of the layout buffer with one more partition entry, ready for SET_DRIVE_LAYOUT_EX. Unlike New-Partition,
+    /// which zeroes the start of the new partition, this writes the table only: the contents are never touched.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The partition does not fit (the message says why).</exception>
+    public byte[] WithAddedPartition(long offset, long length, int typeCode, int sectorSize)
+    {
+        if (sectorSize <= 0 || offset % sectorSize != 0 || length <= 0 || length % sectorSize != 0)
+            throw new InvalidOperationException("The partition does not start and end on a sector boundary of this disk.");
+
+        long end = offset + length;
+        long first = IsGpt ? Math.Max(UsableStart, FirstUsableOffset) : sectorSize;
+        if (offset < first || end > UsableEnd)
+            throw new InvalidOperationException("The partition is outside the usable area of the disk.");
+        foreach (var other in Partitions)
+        {
+            if (offset < other.Offset + other.Length && other.Offset < end)
+                throw new InvalidOperationException($"The partition overlaps partition {other.Number}.");
+        }
+
+        int count = (int)BinaryPrimitives.ReadUInt32LittleEndian(_data.AsSpan(4));
+        var copy = IsGpt
+            ? new byte[HeaderSize + (count + 1) * EntrySize]
+            : (byte[])_data.Clone();
+        if (IsGpt)
+        {
+            if (count + 1 > BinaryPrimitives.ReadUInt32LittleEndian(_data.AsSpan(40)))
+                throw new InvalidOperationException("The partition table of this disk is full.");
+            _data.AsSpan(0, HeaderSize + count * EntrySize).CopyTo(copy);
+            BinaryPrimitives.WriteUInt32LittleEndian(copy.AsSpan(4), (uint)(count + 1));
+        }
+
+        int slot = count;   // GPT: the new last entry
+        if (!IsGpt)
+        {
+            slot = Enumerable.Range(0, count)
+                .FirstOrDefault(i => BinaryPrimitives.ReadInt64LittleEndian(copy.AsSpan(HeaderSize + i * EntrySize + 16)) <= 0, -1);
+            if (slot < 0)
+                throw new InvalidOperationException("The disk already has four partitions, the most an MBR disk holds.");
+        }
+
+        var entry = copy.AsSpan(HeaderSize + slot * EntrySize, EntrySize);
+        entry.Clear();
+        BinaryPrimitives.WriteInt32LittleEndian(entry, IsGpt ? StyleGpt : StyleMbr);
+        BinaryPrimitives.WriteInt64LittleEndian(entry[8..], offset);
+        BinaryPrimitives.WriteInt64LittleEndian(entry[16..], length);
+        entry[28] = 1;   // RewritePartition
+        if (IsGpt)
+        {
+            BasicDataType.TryWriteBytes(entry[GptTypeOffset..]);
+            Guid.NewGuid().TryWriteBytes(entry[GptIdOffset..]);
+            System.Text.Encoding.Unicode.GetBytes("Basic data partition".AsSpan(), entry.Slice(GptNameOffset, GptNameChars * 2));
+        }
+        else
+        {
+            entry[32] = (byte)typeCode;
+            entry[34] = 1;   // RecognizedPartition
+            BinaryPrimitives.WriteUInt32LittleEndian(entry[36..], (uint)Math.Min(offset / sectorSize, uint.MaxValue));   // HiddenSectors
+        }
+        return copy;
+    }
+
     /// <summary>A copy of the layout buffer with the start of one partition changed, ready for SET_DRIVE_LAYOUT_EX.</summary>
     public byte[] WithMovedPartition(LayoutPartition partition, long newOffset)
     {

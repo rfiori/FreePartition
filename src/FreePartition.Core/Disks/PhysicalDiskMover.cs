@@ -131,7 +131,7 @@ public sealed class PhysicalDiskMover : IPartitionMover
         return DriveLayout.Parse(ReadLayout(disk), ReadLength(disk));
     }
 
-    private static byte[] ReadLayout(SafeFileHandle disk)
+    internal static byte[] ReadLayout(SafeFileHandle disk)
     {
         for (int size = 48 + 144 * 128; size <= 1 << 20; size *= 2)
         {
@@ -144,7 +144,7 @@ public sealed class PhysicalDiskMover : IPartitionMover
         throw new InvalidDataException("The partition table is too large.");
     }
 
-    private static void SetLayout(SafeFileHandle disk, byte[] layout)
+    internal static void SetLayout(SafeFileHandle disk, byte[] layout)
     {
         if (!DeviceIoControl(disk, IoctlDiskSetDriveLayoutEx, layout, layout.Length, default, 0, out _, IntPtr.Zero))
             throw new Win32Exception(Marshal.GetLastPInvokeError());

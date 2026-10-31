@@ -29,7 +29,7 @@
 - [.NET SDK 10](https://dotnet.microsoft.com/download)
 - Administrator rights to run the app (raw volume access and partition)
 
-## Quick start
+## Quick start fo devs
 
 ```bash
 git clone https://github.com/rfiori/FreePartition.git
@@ -98,6 +98,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Verify wipe** | Reads a whole volume (also a RAW one) and checks that nothing is left after a wipe: counts the bytes that are not zero, shows where the first one is with a hex dump and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
 | **Cluster map** | Draws a whole volume (also a RAW one) as a grid. Each square is classified as zero, data or unreadable from three 4 KB samples; clicking a square shows its byte range, its NTFS clusters and a hex dump. |
 | **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS (see below). |
+| **Recover partitions** | Looks in the unallocated space of the selected disk for NTFS, FAT32 and exFAT partitions missing from the partition table (read-only) and queues the ones you check to be put back. Only the table is written, never the files (see below). |
 
 **Create**
 
@@ -150,7 +151,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
-Not implemented yet: SSD firmware Secure Erase, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -233,6 +234,29 @@ It is on by default for FAT/exFAT drives, and the scan switches to it by itself 
 - It reads the entire drive, so it is much slower than the MFT scan. The volume is still opened read-only.
   **Cancel** stops the scan and lists everything found so far, so a long scan can be cut short and still be useful.
 
+### Lost partitions
+
+**Recover partitions** (Tools menu, Operations panel, or right-click; pick the disk in the window) finds partitions
+whose entry is gone from the partition table, for example after a deleted partition, a corrupted table or a disk that
+shows as uninitialized:
+
+1. Works out the unallocated ranges of the disk from the partitions Windows reports (the GPT tables are left out).
+2. Looks in those ranges for the boot sector of an NTFS, FAT32 or exFAT volume. A sector counts only if its signature,
+   boot mark and the size fields the file system requires are all in range.
+3. Reads the volume size from the boot sector and keeps only partitions that fit entirely in the free space.
+4. Looks at the backup boot sector at the end of the volume. If it matches, the result is **high confidence** and
+   checked by default; a partition with only the first boot sector is **low confidence** and left unchecked.
+5. **Add to queue** queues a *Restore partition* for each checked result. On **Apply** it re-reads the boot sector (it
+   must still be the same file system and size), checks that nothing else occupies the range and adds the partition
+   to the table by writing the entry directly (`New-Partition` is not used: it zeroes the start of the new partition and
+   would destroy the boot sector). The volume is **not formatted**, so its files come back as they were.
+
+- **Quick** looks where partitions usually start: the start of each free range, every 1 MB, and the track and
+  cylinder boundaries of old Windows layouts (sector 63). **Deep** reads every sector of the free space, so it finds
+  partitions that start anywhere but takes as long as copying that space. **Cancel** lists what was found so far.
+- On a disk with no partition table, queue **Initialize disk** first (MBR or GPT, it writes only the table), then the restores.
+- It only restores the partition, not the type or GUID: Windows gives it a new GPT GUID and a basic data type.
+
 ## Safety
 
 The guarantees the code is built around:
@@ -245,7 +269,7 @@ The guarantees the code is built around:
 - Formatting or changing the drive letter of the **Windows drive** is blocked.
 - PowerShell scripts are generated only from validated values (drive letter, numeric size,
   file system from a closed list, label with restricted characters) — no command injection.
-- **Move partition and the wipe operations are the only exceptions to "nothing is written outside the PowerShell
+- **Move partition, Restore partition and the wipe operations are the only exceptions to "nothing is written outside the PowerShell
   cmdlets"**, because Windows has no cmdlet for them. Move partition exists because no cmdlet changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
   only inside the partition's own space plus free space of the same disk (the table is checked first, and the drive
   letter must be exactly the selected partition), with the volume locked and unmounted. If the partition table
@@ -258,6 +282,9 @@ The guarantees the code is built around:
   closed if the disk cannot be identified. A partition is overwritten through its own locked volume, so no write can
   land outside it. Writes are sector-aligned. On SSDs the app warns that overwriting cannot reach the drive's spare
   cells.
+- The lost-partition scan only reads the disk. **Restore partition** writes nothing but a partition table entry, only
+  after **Apply**, refuses a range that overlaps an existing partition or no longer holds the same boot sector, and
+  never formats.
 - The queue stops at the first failure; the remaining operations stay pending.
 - **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
@@ -291,7 +318,7 @@ The guarantees the code is built around:
 - ✅ Filter by name
 - ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
 - ✅ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
-- ⚪ Recover lost partitions
+- ✅ Recover lost partitions (NTFS, FAT32, exFAT by boot sector; not yet run on a VHD)
 - ✅ Explicit TRIM warning on SSD
 
 **Advanced (high risk — needs heavy VM/VHD testing)**
@@ -305,6 +332,10 @@ The guarantees the code is built around:
 
 - **Names and folders need NTFS.** FAT/exFAT only have *file carving* (no names, folders or dates, a handful of formats);
   reading their directory entries (`0xE5`) is not implemented. Carving has never run on a real volume yet: test it on a VHD first.
+- **Lost partitions** are found by their first boot sector only. A partition whose boot sector was overwritten, FAT12/16,
+  ReFS, Linux and other file systems are not found. A partition that overlaps one you created afterwards is not listed.
+  Logical partitions inside an MBR extended
+  partition come back as primary ones. The scan has never run on a real disk: test it on a VHD first.
 - Files with an `$ATTRIBUTE_LIST` (very fragmented, or with many attributes) may appear incomplete.
 - Compressed or encrypted (EFS) files are marked "Unavailable".
 - Alternate data streams (ADS) are ignored.
