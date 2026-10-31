@@ -114,6 +114,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Resize partition** | Extends or shrinks the selected partition by dragging the partition bar. |
 | **Move partition** | Moves the partition into free space on the same disk (data is lost if interrupted). |
 | **Align partition** | Moves a partition that is not aligned to 4 KB to the nearest 1 MB boundary (data is lost if interrupted). |
+| **Clone partition** | Copies the selected partition, sector by sector, into unallocated space on the same or another disk, and adds it to that disk's partition table. The original is only read and is not changed. |
 | **Merge partitions** | Merges the selected partition into the one right before it; its files are kept in a folder. |
 | **Split partition** | Splits the selected partition in two, using its free space, by dragging the bar. The files stay on the original drive. |
 
@@ -151,7 +152,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
-Not implemented yet: SSD firmware Secure Erase, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -285,6 +286,9 @@ The guarantees the code is built around:
 - The lost-partition scan only reads the disk. **Restore partition** writes nothing but a partition table entry, only
   after **Apply**, refuses a range that overlaps an existing partition or no longer holds the same boot sector, and
   never formats.
+- **Clone partition** only runs after **Apply**, never on the Windows drive. It reads the source through its own locked
+  volume and writes only into unallocated space (the destination table is checked before the first write), so a failure
+  leaves the original as it was; it can be canceled while it copies. It writes the table entry last, after the copy.
 - The queue stops at the first failure; the remaining operations stay pending.
 - **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
@@ -323,7 +327,7 @@ The guarantees the code is built around:
 
 **Advanced (high risk — needs heavy VM/VHD testing)**
 - ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
-- ⚪ Clone partition
+- ✅ Clone partition (same or another disk, into unallocated space; not yet run on a VHD)
 - ⚪ Convert MBR ↔ GPT without data loss
 - ⚪ Migrate Windows to another SSD/HDD
 - ⚪ Rebuild MBR/BCD, bootable media (WinPE)
@@ -352,6 +356,10 @@ The guarantees the code is built around:
   32 GB (the Windows FAT32 format limit) and files of 4 GB or more, and FAT32 loses NTFS permissions, compression,
   encryption, alternate data streams and hard links. Never on the Windows drive. If the power fails after the format
   starts, the files are in `\FreePartition_Convert_<drive>` on the staging drive.
+- Clone partition: NTFS, FAT32 and exFAT only, to disks with the same sector size, into unallocated space at least as
+  large as the partition (the copy keeps the original size; resize it afterwards). The copy has the same volume serial
+  number as the original, and a clone on an MBR disk needs a free primary slot (extended partitions are not supported).
+  Not yet run on a real disk: test it on a VHD first.
 - The partition "Type" column only shows Primary / EFI / Other: WMI does not distinguish logical partitions.
 - The UI is code-behind (no MVVM yet).
 

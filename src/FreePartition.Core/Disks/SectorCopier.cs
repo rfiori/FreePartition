@@ -60,6 +60,44 @@ public static class SectorCopier
         }
     }
 
+    /// <summary>
+    /// Copies a byte range from one handle to another (two disks, or two places on one disk), in chunks. Unlike
+    /// <see cref="Move"/> the ranges must not overlap, and canceling is safe: the source is only read, and the
+    /// destination is not in any partition table until the caller adds it.
+    /// </summary>
+    /// <param name="progress">Fraction done, 0 to 1.</param>
+    /// <exception cref="OperationCanceledException">Canceled between two chunks.</exception>
+    public static void Copy(SafeFileHandle source, long sourceOffset, SafeFileHandle destination, long destinationOffset,
+        long length, IProgress<double>? progress = null, CancellationToken ct = default, int chunkBytes = DefaultChunkBytes)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (sourceOffset < 0 || destinationOffset < 0 || length < 0 || chunkBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(length), "Invalid range.");
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(chunkBytes);
+        try
+        {
+            long done = 0;
+            while (done < length)
+            {
+                ct.ThrowIfCancellationRequested();
+                int size = (int)Math.Min(chunkBytes, length - done);
+
+                ReadFully(source, buffer.AsSpan(0, size), sourceOffset + done);
+                RandomAccess.Write(destination, buffer.AsSpan(0, size), destinationOffset + done);
+
+                done += size;
+                progress?.Report((double)done / length);
+            }
+            RandomAccess.FlushToDisk(destination);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     private static void ReadFully(SafeFileHandle disk, Span<byte> destination, long offset)
     {
         int total = 0;

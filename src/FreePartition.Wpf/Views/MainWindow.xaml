@@ -395,6 +395,13 @@
                                 <TextBlock Text="Align partition" />
                             </StackPanel>
                         </Button>
+                        <Button x:Name="OpClone" Style="{StaticResource OperationItem}" Click="OpClone_Click"
+                                ToolTip="Copy the selected partition, sector by sector, into unallocated space on this or another disk (the original is not changed)">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8C8;" Foreground="{StaticResource Accent}" />
+                                <TextBlock Text="Clone partition" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="OpMerge" Style="{StaticResource OperationItem}" Click="OpMerge_Click"
                                 ToolTip="Merge the selected partition into the one right before it (its files are kept in a folder)">
                             <StackPanel Orientation="Horizontal">

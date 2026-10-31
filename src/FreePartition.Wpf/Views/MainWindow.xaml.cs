@@ -432,6 +432,7 @@ public partial class MainWindow : Window
         OpResize.IsEnabled = hasLetter;
         OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
         OpSplit.IsEnabled = hasLetter;
+        OpClone.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot be cloned
         OpMove.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot move
         OpAlign.IsEnabled = Selected is { Unallocated: false, PartitionNumber: > 0 } aligned
                             && PartitionAlignment.Classify(aligned.Offset) == AlignmentStatus.Misaligned;
@@ -743,6 +744,67 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    private void OpClone_Click(object sender, RoutedEventArgs e)
+    {
+        const string title = "Clone partition";
+        if (Selected is not { Unallocated: false } row) return;
+        if (row.Letter is not { } letter || row.PartitionNumber < 1)
+        {
+            MessageBox.Show(this, "Only a partition with a drive letter can be cloned. " +
+                "Use \"Show partition\" to give it one first.", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (letter == _systemLetter)
+        {
+            MessageBox.Show(this, $"{letter}: is the Windows drive. A copy of a drive that is running would be inconsistent, so it is not allowed.",
+                title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (row.FileSystem is not ("NTFS" or "FAT32" or "exFAT"))
+        {
+            MessageBox.Show(this, "Only NTFS, FAT32 and exFAT partitions can be cloned.", title,
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        const long mib = 1L << 20;
+        long length = (long)row.Size;
+
+        // Unallocated stretches (any disk) with room for the partition from their first 1 MB boundary.
+        var targets = new List<(string Text, int Disk, long Offset)>();
+        foreach (var r in DisksGrid.Items.OfType<PartitionRow>().Where(r => r.Unallocated && !r.Uninitialized))
+        {
+            long start = ((long)r.Offset + mib - 1) / mib * mib;
+            if (start + length > (long)(r.Offset + r.Size)) continue;
+            targets.Add(($"Disk {r.DiskIndex} — {ByteFormatter.Format((long)r.Size)} free at {ByteFormatter.Format(start)}", r.DiskIndex, start));
+        }
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this, $"There is no unallocated space of {ByteFormatter.Format(length)} or more on any disk. " +
+                "Free some, or add a disk, then try again.", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new ParametersDialog(title,
+            $"Copy {letter}: ({ByteFormatter.Format(length)}) sector by sector into unallocated space. The original is not " +
+            "changed. The copy has the same size; resize it afterwards if the space is larger.",
+            [new DialogField("Copy to:", "", targets.Select(t => t.Text).ToList()),
+             LetterField("Drive letter of the copy:", AutomaticLetter)]) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        var target = targets.FirstOrDefault(t => t.Text == dialog.Values[0]);
+        if (target.Text is null) return;
+        char? copyLetter = dialog.Values[1] is { Length: 1 } text ? char.ToUpperInvariant(text[0]) : null;
+
+        var answer = MessageBox.Show(this,
+            $"{ClonePartition.DuplicateWarning}\n\nQueue the clone of {letter}: to disk {target.Disk}?",
+            title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        TryQueue(new ClonePartition(row.DiskIndex, row.PartitionNumber, letter, (long)row.Offset, length,
+            target.Disk, target.Offset, ConvertFileSystem(row.FileSystem), copyLetter));
     }
 
     private void OpLabel_Click(object sender, RoutedEventArgs e) =>
@@ -1254,7 +1316,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Operations that write sectors directly, which Controlled folder access blocks.</summary>
-    private static bool WritesRawSectors(DiskOperation operation) => operation is MovePartition or WipePartition or WipeDisk or RestorePartition;
+    private static bool WritesRawSectors(DiskOperation operation) => operation is MovePartition or WipePartition or WipeDisk or RestorePartition or ClonePartition;
 
     private void OpenControlledFolderAccessSettings()
     {
