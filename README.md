@@ -153,7 +153,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
-Not implemented yet: SSD firmware Secure Erase, Windows migration and boot repair. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
 
 ## Screenshots
 
@@ -216,88 +216,55 @@ When you are done: `Dismount-VHD -Path $vhd` and delete the file.
 
 ### File carving
 
-The **Carve files by signature** option in the recovery window ignores the file system and walks the whole
-volume sector by sector, looking for the bytes each format starts with, then works out where each file ends
-from its own structure:
-
-| Kind | Formats | How the end is found |
-|---|---|---|
-| Images | JPEG, PNG, GIF, BMP, WebP, PSD/PSB | Marker/chunk/block walk, or the size in the header |
-| Documents | PDF, DOCX/XLSX/PPTX, ZIP | Last `%%EOF`, or the ZIP end record checked against its directory |
-| Media | MP4, MOV, M4A, 3GP, HEIC, AVIF, WAV, AVI | Chain of boxes, or the RIFF size |
-| Other | 7z, SQLite, EXE/DLL | Size in the header (7z checked by its CRC), or the last section and signature (PE) |
+The **Carve files by signature** option ignores the file system and walks the whole volume looking for the bytes each
+format starts with, then works out where each file ends from its own structure. Supported: JPEG, PNG, GIF, BMP, WebP,
+PSD/PSB, PDF, DOCX/XLSX/PPTX, ZIP, MP4, MOV, M4A, 3GP, HEIC, AVIF, WAV, AVI, 7z, SQLite and EXE/DLL.
 
 It is on by default for FAT/exFAT drives, and the scan switches to it by itself when the NTFS MFT cannot be read.
 
-- Files come back as `carved_00001.jpg`, grouped by type, without their original names, folders or dates.
+- Files come back as `carved_00001.jpg`, grouped by type, without names, folders or dates.
 - A fragmented file is cut at the first gap, so it may be incomplete or damaged.
-- A file whose end has to be searched for (JPEG, PNG, GIF, PDF, ZIP) is skipped past 256 MiB; formats that state their
-  own size (video, audio, 7z, SQLite) go up to 16 GiB. Data appended to an EXE/DLL (installers) is not included.
-- It reads the entire drive, so it is much slower than the MFT scan. The volume is still opened read-only.
-  **Cancel** stops the scan and lists everything found so far, so a long scan can be cut short and still be useful.
+- Files whose end has to be searched for (JPEG, PNG, GIF, PDF, ZIP) are skipped past 256 MiB; formats that state their
+  own size go up to 16 GiB.
+- It reads the entire drive, so it is much slower than the MFT scan (still read-only). **Cancel** lists what was found so far.
 
 ### Lost partitions
 
-**Recover partitions** (Tools menu, Operations panel, or right-click; pick the disk in the window) finds partitions
-whose entry is gone from the partition table, for example after a deleted partition, a corrupted table or a disk that
-shows as uninitialized:
+**Recover partitions** finds partitions whose entry is gone from the partition table (a deleted partition, a corrupted
+table, a disk that shows as uninitialized):
 
-1. Works out the unallocated ranges of the disk from the partitions Windows reports (the GPT tables are left out).
-2. Looks in those ranges for the boot sector of an NTFS, FAT32 or exFAT volume. A sector counts only if its signature,
-   boot mark and the size fields the file system requires are all in range.
-3. Reads the volume size from the boot sector and keeps only partitions that fit entirely in the free space.
-4. Looks at the backup boot sector at the end of the volume. If it matches, the result is **high confidence** and
-   checked by default; a partition with only the first boot sector is **low confidence** and left unchecked.
-5. **Add to queue** queues a *Restore partition* for each checked result. On **Apply** it re-reads the boot sector (it
-   must still be the same file system and size), checks that nothing else occupies the range and adds the partition
-   to the table by writing the entry directly (`New-Partition` is not used: it zeroes the start of the new partition and
-   would destroy the boot sector). The volume is **not formatted**, so its files come back as they were.
+1. Looks in the unallocated ranges of the disk for the boot sector of an NTFS, FAT32 or exFAT volume, and keeps only
+   partitions that fit entirely in the free space.
+2. A partition whose backup boot sector (at the end of the volume) also matches is **high confidence** and checked by
+   default; one with only the first boot sector is **low confidence** and left unchecked.
+3. **Add to queue** queues a *Restore partition* for each checked result. On **Apply** it re-checks the boot sector and
+   that nothing else occupies the range, then writes the table entry directly (`New-Partition` would zero the start
+   of the partition and destroy the boot sector). The volume is **not formatted**, so its files come back as they were.
 
-- **Quick** looks where partitions usually start: the start of each free range, every 1 MB, and the track and
-  cylinder boundaries of old Windows layouts (sector 63). **Deep** reads every sector of the free space, so it finds
-  partitions that start anywhere but takes as long as copying that space. **Cancel** lists what was found so far.
-- On a disk with no partition table, queue **Initialize disk** first (MBR or GPT, it writes only the table), then the restores.
-- It only restores the partition, not the type or GUID: Windows gives it a new GPT GUID and a basic data type.
+- **Quick** looks where partitions usually start (start of each free range, every 1 MB, sector 63); **Deep** reads
+  every sector of the free space, so it takes as long as copying that space.
+- On a disk with no partition table, queue **Initialize disk** first, then the restores.
+- Only the partition comes back, not its type or GUID: Windows gives it a new GPT GUID and a basic data type.
 
 ## Safety
 
 The guarantees the code is built around:
 
-- The volume is opened **read-only** — nothing is written to the source disk during a scan.
-- Recovery **refuses a destination folder on the same drive** as the file being recovered.
-- Disk operations never run directly: they go into a queue and only run on **Apply**, after an
-  explicit confirmation that lists the risk.
-- **Simulation mode is checked by default** — it shows the commands without running anything.
-- Formatting or changing the drive letter of the **Windows drive** is blocked.
-- PowerShell scripts are generated only from validated values (drive letter, numeric size,
-  file system from a closed list, label with restricted characters) — no command injection.
-- **Move partition, Restore partition, Clone partition, Convert MBR / GPT and the wipe operations are the only exceptions to "nothing is written outside the PowerShell
-  cmdlets"**, because Windows has no cmdlet for them. Move partition exists because no cmdlet changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
-  only inside the partition's own space plus free space of the same disk (the table is checked first, and the drive
-  letter must be exactly the selected partition), with the volume locked and unmounted. If the partition table
-  cannot be updated after the copy, the data is copied back. **If the power fails or the computer is turned off
-  while it runs, the data on that partition is corrupted** — the app says so before and when applying, and it
-  cannot be canceled once the copy has started.
-- **Wipe** (partition, free space, whole disk) only runs after **Apply**, after typing the drive letter or disk
-  number to confirm. It is refused on the Windows drive, and *Wipe disk* on any disk holding the Windows drive or
-  the app itself — checked by the queue, by the script (`IsSystem`/`IsBoot`) and again right before writing, failing
-  closed if the disk cannot be identified. A partition is overwritten through its own locked volume, so no write can
-  land outside it. Writes are sector-aligned. On SSDs the app warns that overwriting cannot reach the drive's spare
-  cells.
-- The lost-partition scan only reads the disk. **Restore partition** writes nothing but a partition table entry, only
-  after **Apply**, refuses a range that overlaps an existing partition or no longer holds the same boot sector, and
-  never formats.
-- **Clone partition** only runs after **Apply**, never on the Windows drive. It reads the source through its own locked
-  volume and writes only into unallocated space (the destination table is checked before the first write), so a failure
-  leaves the original as it was; it can be canceled while it copies. It writes the table entry last, after the copy.
+- Volumes are opened **read-only** for scans and recovery; recovery **refuses a destination on the same drive**.
+- Disk operations never run directly: they go into a queue and only run on **Apply**, after a confirmation that lists
+  the risk. **Simulation mode is on by default** and only shows the commands. **Undo** works only before applying.
+- The **Windows drive** is protected: no format, letter change, move, clone or wipe. *Wipe disk* and *Convert MBR / GPT*
+  are also refused on any disk holding Windows or the app itself (checked by the queue, by the script and again right
+  before writing, failing closed if the disk cannot be identified).
+- PowerShell scripts are generated only from validated values (drive letter, numeric size, file system from a closed
+  list, label with restricted characters) — no command injection.
+- The few operations that write below the cmdlet level (**Move**, **Clone**, **Restore partition**, **Convert MBR / GPT**
+  and the **wipes**) only run after **Apply**, check the partition table first and write only where they must: inside the
+  partition's own locked volume, into free space of the disk, or the partition table sectors. Clone and Restore write the
+  table entry last; Convert saves the old table and puts it back if writing fails.
+- **Move partition cannot be canceled once the copy starts, and a power failure corrupts that partition** — the app says
+  so before and when applying. On SSDs, wipes cannot reach the drive's spare cells and the app warns about it.
 - The queue stops at the first failure; the remaining operations stay pending.
-- **Convert MBR / GPT** only runs after **Apply**, and never on the disk that holds Windows or the app itself (checked by
-  the queue, through the drive letters, and again right before writing, failing closed). It rewrites nothing but the
-  sectors of the partition tables, at the start and the end of the disk; every partition keeps its offset and size, and
-  no sector inside a partition is written. The new table is worked out and checked first (the whole conversion is
-  refused, with the reason, if anything would not fit or has no equivalent in the other style), the old table's
-  sectors are saved, and if writing the new one fails they are put back. The table is read back and compared at the end.
-- **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
 
 ## Roadmap
@@ -336,46 +303,29 @@ The guarantees the code is built around:
 - ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
 - ✅ Clone partition (same or another disk, into unallocated space; not yet run on a VHD)
 - ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from; not yet run on a VHD)
-- ⚪ Migrate Windows to another SSD/HDD
-- ⚪ Rebuild MBR/BCD, bootable media (WinPE)
 
 ## Known limitations
 
-- **Names and folders need NTFS.** FAT/exFAT only have *file carving* (no names, folders or dates, a handful of formats);
-  reading their directory entries (`0xE5`) is not implemented. Carving has never run on a real volume yet: test it on a VHD first.
-- **Lost partitions** are found by their first boot sector only. A partition whose boot sector was overwritten, FAT12/16,
-  ReFS, Linux and other file systems are not found. A partition that overlaps one you created afterwards is not listed.
-  Logical partitions inside an MBR extended
-  partition come back as primary ones. The scan has never run on a real disk: test it on a VHD first.
-- Files with an `$ATTRIBUTE_LIST` (very fragmented, or with many attributes) may appear incomplete.
-- Compressed or encrypted (EFS) files are marked "Unavailable".
-- Alternate data streams (ADS) are ignored.
-- The sequence number of the parent reference is not validated — paths of reused folders may be wrong.
+- **Names and folders need NTFS.** FAT/exFAT only have *file carving*; reading their directory entries is not implemented.
+- **Lost partitions** are found by their first boot sector only: FAT12/16, ReFS, Linux and other file systems are not
+  found, and logical partitions inside an MBR extended partition come back as primary ones.
+- Files with an `$ATTRIBUTE_LIST` may appear incomplete; compressed or encrypted (EFS) files are "Unavailable";
+  alternate data streams are ignored; parent sequence numbers are not validated, so paths of reused folders may be wrong.
 - On SSDs with TRIM, deleted data has usually already been discarded by the controller.
-- Move partition: same disk only, MBR (without extended partitions) and GPT, destinations aligned to 4 KB, and the
-  partition needs a drive letter. **Align partition** uses the same move, so it needs up to 1 MB of free space
-  right before or after the partition. You drag the partition inside the free space touching it (before and/or after), in steps of 1 MiB.
-  Boot-sector "hidden sectors" are not rewritten, so the app asks for confirmation when the partition is marked
-  Boot, Active, Page File or Crash Dump, and refuses the Windows drive outright.
-- Convert FAT32 ↔ NTFS: FAT32 → NTFS runs Windows' in-place `convert.exe`. NTFS → FAT32 has no in-place tool, so the
-  files are copied to another drive, verified (file count and bytes), the volume is formatted and the files are copied
-  back and verified again; the copy is deleted only then. It needs free space on another drive, refuses volumes over
-  32 GB (the Windows FAT32 format limit) and files of 4 GB or more, and FAT32 loses NTFS permissions, compression,
-  encryption, alternate data streams and hard links. Never on the Windows drive. If the power fails after the format
-  starts, the files are in `\FreePartition_Convert_<drive>` on the staging drive.
-- Clone partition: NTFS, FAT32 and exFAT only, to disks with the same sector size, into unallocated space at least as
-  large as the partition (the copy keeps the original size; resize it afterwards). The copy has the same volume serial
-  number as the original, and a clone on an MBR disk needs a free primary slot (extended partitions are not supported).
-  Not yet run on a real disk: test it on a VHD first.
-- Convert MBR / GPT: not the disk Windows boots from (use Microsoft's `mbr2gpt.exe` for that one; booting depends on the
-  style). MBR → GPT needs 34 sectors free at the start and 33 at the end of the disk (shrink the last partition by 1 MB
-  if it reaches the end), turns logical partitions into ordinary ones, and drops the active flag; it refuses dynamic
-  disks and partition types GPT has no equivalent for. GPT → MBR needs at most four partitions (the Microsoft Reserved
-  one is dropped), none past 2 TB, and only the types Windows, EFI, recovery and Linux use. Volumes without a drive
-  letter are not locked while the table is written. Windows gives the partitions new identities, so drive letters may
-  change (the app tries to give them back). Not yet run on a real disk: test it on a VHD first.
-- The partition "Type" column only shows Primary / EFI / Other: WMI does not distinguish logical partitions.
-- The UI is code-behind (no MVVM yet).
+- **Move / Align partition**: same disk only, MBR (without extended partitions) and GPT, destinations aligned to 4 KB, and
+  the partition needs a drive letter. Align needs up to 1 MB of free space next to the partition. Boot-sector "hidden
+  sectors" are not rewritten, so the app asks for confirmation on Boot, Active, Page File or Crash Dump partitions.
+- **Convert FAT32 ↔ NTFS**: NTFS → FAT32 copies the files to another drive, formats and copies them back (needs free
+  space there, refuses volumes over 32 GB and files of 4 GB or more; FAT32 loses permissions, compression, encryption,
+  streams and hard links). If the power fails after the format starts, the files are in
+  `\FreePartition_Convert_<drive>` on the staging drive.
+- **Clone partition**: NTFS, FAT32 and exFAT only, to disks with the same sector size, into unallocated space at least as
+  large as the partition (resize it afterwards). The copy keeps the volume serial number; on MBR it needs a free primary slot.
+- **Convert MBR / GPT**: not the disk Windows boots from (use `mbr2gpt.exe`). MBR → GPT needs 34 sectors free at the start
+  and 33 at the end and refuses dynamic disks; GPT → MBR needs at most four partitions, none past 2 TB. Logical partitions
+  become ordinary ones, and drive letters may change (the app tries to restore them).
+- Carving, lost-partition scan, Clone, Convert and the wipes have not been run on a real disk yet: test them on a VHD first.
+- The partition "Type" column only shows Primary / EFI / Other, and the UI is code-behind (no MVVM yet).
 
 ## Contributing
 
