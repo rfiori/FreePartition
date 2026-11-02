@@ -77,7 +77,7 @@ public class VolumeUsageScannerTests : IDisposable
         Write("loose.bin", 10);
 
         var reports = new List<IReadOnlyList<UsageSegment>>();
-        var result = await VolumeUsageScanner.ScanAsync(_root, 1100, new SyncProgress(reports.Add));
+        var result = await VolumeUsageScanner.ScanAsync(_root, 1100, new SyncProgress(report => { lock (reports) reports.Add(report); }));   // the three scans report from different threads
 
         Assert.Equal(550UL, result.Single(s => s.Name == VolumeUsageScanner.OperatingSystem).Bytes);
         Assert.Equal(200UL, result.Single(s => s.Name == VolumeUsageScanner.Programs).Bytes);

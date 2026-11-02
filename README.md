@@ -22,59 +22,14 @@
   <a href="https://github.com/rfiori/FreePartition/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/rfiori/FreePartition/total"></a>
 </p>
 
-> [!WARNING]
-> **Alpha software that touches disks.** The MFT scan has not yet been validated on real
-> hardware, and the partition operations run real PowerShell cmdlets. Try it on a **test VHD
-> or a virtual machine first**, and keep backups. See [Safety](#safety) and
-> [Known limitations](#known-limitations).
-
 ---
-
-## Table of contents
-
-- [What it does](#what-it-does)
-- [Screenshots](#screenshots)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [Releases](#releases)
-- [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
-- [How recovery works](#how-recovery-works)
-- [Safety](#safety)
-- [Project structure](#project-structure)
-- [Roadmap](#roadmap)
-- [Known limitations](#known-limitations)
-- [Contributing](#contributing)
-- [License](#license)
-
-## What it does
-
-| Area | Feature |
-| --- | --- |
-| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map, and tells SSDs from HDDs. A read-only **Properties** window shows a usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
-| **Deleted-file recovery** | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`) and recovery to another drive, browsing results as a folder tree (with check boxes) and recreating the original folders. Filters by name, type, size and modified date, and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
-| **Partition operations** | Initialize a disk (MBR/GPT), create, delete, resize/extend (drag the partition bar), merge, split and move partitions, format (NTFS, FAT32, exFAT), change label, change drive letter, set active (MBR), hide/show, check for errors (`chkdsk`, scan or repair), convert FAT32 ↔ NTFS keeping the files. Also available from the right-click menu. |
-| **Disk health** | Read-only report per disk (Tools → Disk health): overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
-| **Pending-operations queue** | Nothing runs until you click **Apply**: *Undo / Undo all / Apply / Simulation* (simulation is on by default), plus a log in `%LocalAppData%\FreePartition\operations.log` that you can show in the app or open from the Tools menu. |
-
-Not implemented yet: secure wipe, file carving, lost-partition recovery, clone partition, MBR ↔ GPT conversion, Windows migration and boot repair. See the [Roadmap](#roadmap).
-
-## Screenshots
-
-<img src="docs/screenshots/main-window.webp" alt="FreePartition main window" width="100%">
-<img src="docs/screenshots/create_partition.webp" alt="FreePartition Create Partition" width="32%">
-<img src="docs/screenshots/move_partition.webp" alt="FreePartition Move Partition" width="32%">
-<img src="docs/screenshots/resize_partition.webp" alt="FreePartition Resize Partition" width="32%">
-<img src="docs/screenshots/split_partiion.webp" alt="FreePartition Split Partition" width="32%">
-<img src="docs/screenshots/recover_delete_files.webp" alt="FreePartition Recover Delete files" width="32%">
-<img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="32%">
-
 ## Requirements
 
-- Windows 10 / 11 (the project uses WMI, P/Invoke, PowerShell and WPF — Windows only).
-- [.NET SDK 10](https://dotnet.microsoft.com/download) (or change the target, see below).
-- Administrator rights to run the app (raw volume access and partition cmdlets).
+- Windows 10 / 11
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
+- Administrator rights to run the app (raw volume access and partition)
 
-## Quick start
+## Quick start fo devs
 
 ```bash
 git clone https://github.com/rfiori/FreePartition.git
@@ -106,6 +61,116 @@ dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.
 ```
 
 </details>
+---
+
+## Table of contents
+
+- [What it does](#what-it-does)
+- [Screenshots](#screenshots)
+- [Releases](#releases)
+- [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
+- [How recovery works](#how-recovery-works)
+- [Safety](#safety)
+- [Roadmap](#roadmap)
+- [Known limitations](#known-limitations)
+- [Contributing](#contributing)
+- [License](#license)
+
+## What it does
+
+Everything in the **Operations** panel (and the right-click menu, which mirrors it) and the **Tools** menu is listed below. Nothing that changes a disk runs until you click **Apply**.
+
+### Overview
+
+| Area | Feature |
+| --- | --- |
+| **Disks and partitions** | Lists disks, partitions and volumes through WMI, grouped by disk with a graphical map. Tells SSDs from HDDs, flags partitions that are not aligned to 4 KB and draws the hidden Microsoft Reserved (MSR) partition as *Reserved (MSR)* instead of unallocated space. |
+
+
+### Operations
+
+**Inspect** (read-only)
+
+| Operation | What it does |
+| --- | --- |
+| **Explore partition** | Opens the selected partition in Windows Explorer. |
+| **Properties** | Usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
+| **Verify wipe** | Reads a whole volume (also a RAW one) and checks that nothing is left after a wipe: counts the bytes that are not zero, shows where the first one is with a hex dump and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
+| **Cluster map** | Draws a whole volume (also a RAW one) as a grid. Each square is classified as zero, data or unreadable from three 4 KB samples; clicking a square shows its byte range, its NTFS clusters and a hex dump. |
+| **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS (see below). |
+| **Recover partitions** | Looks in the unallocated space of the selected disk for NTFS, FAT32 and exFAT partitions missing from the partition table (read-only) and queues the ones you check to be put back. Only the table is written, never the files (see below). |
+
+**Create**
+
+| Operation | What it does |
+| --- | --- |
+| **Initialize disk** | Initializes a blank disk as MBR or GPT. |
+| **Create partition** | Creates a partition in the selected unallocated space, formatted as NTFS, FAT32 or exFAT, with a label and drive letter. |
+
+**Size and position**
+
+| Operation | What it does |
+| --- | --- |
+| **Resize partition** | Extends or shrinks the selected partition by dragging the partition bar. |
+| **Move partition** | Moves the partition into free space on the same disk (data is lost if interrupted). |
+| **Align partition** | Moves a partition that is not aligned to 4 KB to the nearest 1 MB boundary (data is lost if interrupted). |
+| **Clone partition** | Copies the selected partition, sector by sector, into unallocated space on the same or another disk, and adds it to that disk's partition table. The original is only read and is not changed. |
+| **Merge partitions** | Merges the selected partition into the one right before it; its files are kept in a folder. |
+| **Split partition** | Splits the selected partition in two, using its free space, by dragging the bar. The files stay on the original drive. |
+
+**Settings**
+
+| Operation | What it does |
+| --- | --- |
+| **Change label** | Changes the volume label. |
+| **Change letter** | Changes the drive letter. |
+| **Convert FAT32 / NTFS** | Converts the selected partition between FAT32 and NTFS, keeping its files. |
+| **Convert MBR / GPT** | Converts the selected disk between MBR and GPT, keeping every partition and its files: only the partition table is rewritten (see below). |
+| **Set active** | Marks the selected MBR partition as active (bootable). |
+| **Hide partition** | Removes the drive letter; the data stays untouched. |
+| **Show partition** | Gives a drive letter to a hidden partition. |
+
+**Maintenance**
+
+| Operation | What it does |
+| --- | --- |
+| **Check for errors** | Checks the selected volume for file system errors with `chkdsk` (scan or repair). |
+
+**Destructive**
+
+| Operation | What it does |
+| --- | --- |
+| **Format partition** | Formats the partition as NTFS, FAT32 or exFAT. Erases all data on it. |
+| **Delete partition** | Deletes the partition. Erases all data on it. |
+| **Wipe free space** | Overwrites the free space of the selected drive so deleted files cannot be recovered. The files are kept. |
+| **Wipe partition** | Overwrites every sector of the selected partition so nothing on it can be recovered. |
+| **Wipe disk** | Deletes every partition of the selected disk and overwrites all of its sectors. |
+
+### Tools
+
+| Tool | What it does |
+| --- | --- |
+| **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
+| **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
+
+Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
+
+## Screenshots
+
+<img src="docs/screenshots/main-window.webp" alt="FreePartition main window" width="100%">
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/create_partition.webp" alt="FreePartition Create Partition" width="100%"></td>
+    <td><img src="docs/screenshots/move_partition.webp" alt="FreePartition Move Partition" width="100%"></td>
+    <td><img src="docs/screenshots/resize_partition.webp" alt="FreePartition Resize Partition" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/split_partiion.webp" alt="FreePartition Split Partition" width="100%"></td>
+    <td><img src="docs/screenshots/recover_delete_files.webp" alt="FreePartition Recover Delete files" width="100%"></td>
+    <td><img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="100%"></td>
+  </tr>
+</table>
 
 ## Releases
 
@@ -149,43 +214,58 @@ When you are done: `Dismount-VHD -Path $vhd` and delete the file.
 5. Cross-checks the file's clusters against `$Bitmap`: clusters still free = data probably intact.
 6. Recover = copy the clusters (or the content resident in the MFT) to a file on **another disk**.
 
+### File carving
+
+The **Carve files by signature** option ignores the file system and walks the whole volume looking for the bytes each
+format starts with, then works out where each file ends from its own structure. Supported: JPEG, PNG, GIF, BMP, WebP,
+PSD/PSB, PDF, DOCX/XLSX/PPTX, ZIP, MP4, MOV, M4A, 3GP, HEIC, AVIF, WAV, AVI, 7z, SQLite and EXE/DLL.
+
+It is on by default for FAT/exFAT drives, and the scan switches to it by itself when the NTFS MFT cannot be read.
+
+- Files come back as `carved_00001.jpg`, grouped by type, without names, folders or dates.
+- A fragmented file is cut at the first gap, so it may be incomplete or damaged.
+- Files whose end has to be searched for (JPEG, PNG, GIF, PDF, ZIP) are skipped past 256 MiB; formats that state their
+  own size go up to 16 GiB.
+- It reads the entire drive, so it is much slower than the MFT scan (still read-only). **Cancel** lists what was found so far.
+
+### Lost partitions
+
+**Recover partitions** finds partitions whose entry is gone from the partition table (a deleted partition, a corrupted
+table, a disk that shows as uninitialized):
+
+1. Looks in the unallocated ranges of the disk for the boot sector of an NTFS, FAT32 or exFAT volume, and keeps only
+   partitions that fit entirely in the free space.
+2. A partition whose backup boot sector (at the end of the volume) also matches is **high confidence** and checked by
+   default; one with only the first boot sector is **low confidence** and left unchecked.
+3. **Add to queue** queues a *Restore partition* for each checked result. On **Apply** it re-checks the boot sector and
+   that nothing else occupies the range, then writes the table entry directly (`New-Partition` would zero the start
+   of the partition and destroy the boot sector). The volume is **not formatted**, so its files come back as they were.
+
+- **Quick** looks where partitions usually start (start of each free range, every 1 MB, sector 63); **Deep** reads
+  every sector of the free space, so it takes as long as copying that space.
+- On a disk with no partition table, queue **Initialize disk** first, then the restores.
+- Only the partition comes back, not its type or GUID: Windows gives it a new GPT GUID and a basic data type.
+
 ## Safety
 
 The guarantees the code is built around:
 
-- The volume is opened **read-only** — nothing is written to the source disk during a scan.
-- Recovery **refuses a destination folder on the same drive** as the file being recovered.
-- Disk operations never run directly: they go into a queue and only run on **Apply**, after an
-  explicit confirmation that lists the risk.
-- **Simulation mode is checked by default** — it shows the commands without running anything.
-- Formatting or changing the drive letter of the **Windows drive** is blocked.
-- PowerShell scripts are generated only from validated values (drive letter, numeric size,
-  file system from a closed list, label with restricted characters) — no command injection.
-- **Move partition is the one exception to "nothing is written outside the PowerShell cmdlets"**, because Windows
-  has no cmdlet that changes where a partition starts. It only runs after **Apply**, never on the Windows drive,
-  only inside the partition's own space plus free space of the same disk (the table is checked first, and the drive
-  letter must be exactly the selected partition), with the volume locked and unmounted. If the partition table
-  cannot be updated after the copy, the data is copied back. **If the power fails or the computer is turned off
-  while it runs, the data on that partition is corrupted** — the app says so before and when applying, and it
-  cannot be canceled once the copy has started.
+- Volumes are opened **read-only** for scans and recovery; recovery **refuses a destination on the same drive**.
+- Disk operations never run directly: they go into a queue and only run on **Apply**, after a confirmation that lists
+  the risk. **Simulation mode is on by default** and only shows the commands. **Undo** works only before applying.
+- The **Windows drive** is protected: no format, letter change, move, clone or wipe. *Wipe disk* and *Convert MBR / GPT*
+  are also refused on any disk holding Windows or the app itself (checked by the queue, by the script and again right
+  before writing, failing closed if the disk cannot be identified).
+- PowerShell scripts are generated only from validated values (drive letter, numeric size, file system from a closed
+  list, label with restricted characters) — no command injection.
+- The few operations that write below the cmdlet level (**Move**, **Clone**, **Restore partition**, **Convert MBR / GPT**
+  and the **wipes**) only run after **Apply**, check the partition table first and write only where they must: inside the
+  partition's own locked volume, into free space of the disk, or the partition table sectors. Clone and Restore write the
+  table entry last; Convert saves the old table and puts it back if writing fails.
+- **Move partition cannot be canceled once the copy starts, and a power failure corrupts that partition** — the app says
+  so before and when applying. On SSDs, wipes cannot reach the drive's spare cells and the app warns about it.
 - The queue stops at the first failure; the remaining operations stay pending.
-- **Undo** only works before applying. An applied operation is **not** reversible.
 - Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
-
-## Project structure
-
-```
-FreePartition.slnx                     # the solution
-Directory.Build.props                  # TargetFramework and shared options
-src/FreePartition.Core/                # all logic, no UI, testable without a real disk
-  Disks/       DiskService (WMI), DiskHealthService (S.M.A.R.T.), RawVolume (reads \\.\C:), Models,
-               DriveLayout + SectorCopier + PhysicalDiskMover (move partition)
-  Ntfs/        NtfsBootSector, MftParser, RunReader, DeletedFileScanner, FileRecoverer
-  Operations/  DiskOperation (+ types), ConvertVolume (FAT32 ↔ NTFS), OperationQueue, PowerShellExecutor, OperationLog
-  Util/        ByteFormatter
-src/FreePartition.Wpf/                 # WPF UI (app.manifest: requireAdministrator)
-tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fake executor)
-```
 
 ## Roadmap
 
@@ -205,7 +285,9 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - ✅ Merge and split partitions
 - ✅ Convert FAT32 ↔ NTFS without data loss (not yet run on a real disk; test on a VHD first)
 - ✅ Check for errors (`chkdsk`; scan or repair)
-- ⚪ Securely wipe a disk / 4K alignment for SSD
+- ✅ Detect partitions not aligned to 4 KB (warning on the disk map and in Properties)
+- ✅ Align a partition to 1 MB (moves it to the nearest boundary; same risk as a move, not yet run on a VHD)
+- ✅ Wipe a partition, a whole disk or a drive's free space (zeros, verified zeros or random data; not yet run on a VHD)
 
 **Data recovery**
 - ✅ Find deleted files (MFT scan, NTFS)
@@ -213,37 +295,37 @@ tests/FreePartition.Tests/             # xUnit tests (synthetic MFT records, fak
 - ✅ Always recover to another disk
 - ✅ Filter by name
 - ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
-- ⚪ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
-- ⚪ Recover lost partitions
+- ✅ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
+- ✅ Recover lost partitions (NTFS, FAT32, exFAT by boot sector; not yet run on a VHD)
 - ✅ Explicit TRIM warning on SSD
 
 **Advanced (high risk — needs heavy VM/VHD testing)**
 - ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
-- ⚪ Clone partition
-- ⚪ Convert MBR ↔ GPT without data loss
-- ⚪ Migrate Windows to another SSD/HDD
-- ⚪ Rebuild MBR/BCD, bootable media (WinPE)
+- ✅ Clone partition (same or another disk, into unallocated space; not yet run on a VHD)
+- ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from; not yet run on a VHD)
 
 ## Known limitations
 
-- **NTFS only.** FAT/exFAT need another routine (directory entries with `0xE5`) and/or *file carving*.
-- Files with an `$ATTRIBUTE_LIST` (very fragmented, or with many attributes) may appear incomplete.
-- Compressed or encrypted (EFS) files are marked "Unavailable".
-- Alternate data streams (ADS) are ignored.
-- The sequence number of the parent reference is not validated — paths of reused folders may be wrong.
+- **Names and folders need NTFS.** FAT/exFAT only have *file carving*; reading their directory entries is not implemented.
+- **Lost partitions** are found by their first boot sector only: FAT12/16, ReFS, Linux and other file systems are not
+  found, and logical partitions inside an MBR extended partition come back as primary ones.
+- Files with an `$ATTRIBUTE_LIST` may appear incomplete; compressed or encrypted (EFS) files are "Unavailable";
+  alternate data streams are ignored; parent sequence numbers are not validated, so paths of reused folders may be wrong.
 - On SSDs with TRIM, deleted data has usually already been discarded by the controller.
-- Move partition: same disk only, MBR (without extended partitions) and GPT, 4 KB-aligned partitions, and the
-  partition needs a drive letter. You drag the partition inside the free space touching it (before and/or after), in steps of 1 MiB.
-  Boot-sector "hidden sectors" are not rewritten, so the app asks for confirmation when the partition is marked
-  Boot, Active, Page File or Crash Dump, and refuses the Windows drive outright.
-- Convert FAT32 ↔ NTFS: FAT32 → NTFS runs Windows' in-place `convert.exe`. NTFS → FAT32 has no in-place tool, so the
-  files are copied to another drive, verified (file count and bytes), the volume is formatted and the files are copied
-  back and verified again; the copy is deleted only then. It needs free space on another drive, refuses volumes over
-  32 GB (the Windows FAT32 format limit) and files of 4 GB or more, and FAT32 loses NTFS permissions, compression,
-  encryption, alternate data streams and hard links. Never on the Windows drive. If the power fails after the format
-  starts, the files are in `\FreePartition_Convert_<drive>` on the staging drive.
-- The partition "Type" column only shows Primary / EFI / Other: WMI does not distinguish logical partitions.
-- The UI is code-behind (no MVVM yet).
+- **Move / Align partition**: same disk only, MBR (without extended partitions) and GPT, destinations aligned to 4 KB, and
+  the partition needs a drive letter. Align needs up to 1 MB of free space next to the partition. Boot-sector "hidden
+  sectors" are not rewritten, so the app asks for confirmation on Boot, Active, Page File or Crash Dump partitions.
+- **Convert FAT32 ↔ NTFS**: NTFS → FAT32 copies the files to another drive, formats and copies them back (needs free
+  space there, refuses volumes over 32 GB and files of 4 GB or more; FAT32 loses permissions, compression, encryption,
+  streams and hard links). If the power fails after the format starts, the files are in
+  `\FreePartition_Convert_<drive>` on the staging drive.
+- **Clone partition**: NTFS, FAT32 and exFAT only, to disks with the same sector size, into unallocated space at least as
+  large as the partition (resize it afterwards). The copy keeps the volume serial number; on MBR it needs a free primary slot.
+- **Convert MBR / GPT**: not the disk Windows boots from (use `mbr2gpt.exe`). MBR → GPT needs 34 sectors free at the start
+  and 33 at the end and refuses dynamic disks; GPT → MBR needs at most four partitions, none past 2 TB. Logical partitions
+  become ordinary ones, and drive letters may change (the app tries to restore them).
+- Carving, lost-partition scan, Clone, Convert and the wipes have not been run on a real disk yet: test them on a VHD first.
+- The partition "Type" column only shows Primary / EFI / Other, and the UI is code-behind (no MVVM yet).
 
 ## Contributing
 
@@ -264,4 +346,4 @@ MIT — see [LICENSE](LICENSE).
 Privacy policy: [English](docs/privacy/PRIVACY.md) · [Español](docs/privacy/PRIVACY.es.md) ·
 [Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data and makes no network connections.
 
-FreePartition is an independent project and is not affiliated with EaseUS.
+FreePartition is an independent project and is not affiliated with any company.

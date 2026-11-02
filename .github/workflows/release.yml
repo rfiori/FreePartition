@@ -40,13 +40,15 @@ jobs:
           $version = $tag.TrimStart('v')
           $project = 'src/FreePartition.Wpf/FreePartition.Wpf.csproj'
 
-          # Framework-dependent: small, needs the .NET Desktop Runtime installed.
+          # Framework-dependent: small, needs the .NET Desktop Runtime installed. Single file.
           dotnet publish $project -c Release -r win-x64 --self-contained false `
+            -p:PublishSingleFile=true -p:DebugType=none `
             -p:Version=$version -o publish/fd
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-          # Self-contained: larger, runs without installing .NET.
+          # Self-contained: larger, runs without installing .NET. Single file; native libraries are bundled too.
           dotnet publish $project -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none `
             -p:Version=$version -o publish/sc
           if ($LASTEXITCODE -ne 0) { exit 1 }
 

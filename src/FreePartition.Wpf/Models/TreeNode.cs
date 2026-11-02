@@ -28,6 +28,13 @@ public sealed class TreeNode : INotifyPropertyChanged
     public string Icon => File is null ? "" : "";
 
     public DeletedFile? File { get; private init; }
+
+    /// <summary>
+    /// Whether the check box is usable: a file whose data was wiped has nothing to recover, and a folder is usable
+    /// only when something inside it is.
+    /// </summary>
+    public bool CanCheck { get; private set; } = true;
+
     public TreeNode? Parent { get; private set; }
     public IReadOnlyList<TreeNode> Children { get; private set; } = [];
 
@@ -75,6 +82,7 @@ public sealed class TreeNode : INotifyPropertyChanged
                 _isExpanded = expandAll
             };
             node.Children = BuildChildren(sub, expandAll, isChecked, onFileChecked, node);
+            node.CanCheck = node.Children.Any(c => c.CanCheck);
             result.Add(node);
         }
 
@@ -83,11 +91,12 @@ public sealed class TreeNode : INotifyPropertyChanged
             result.Add(new TreeNode(file.Name, onFileChecked)
             {
                 File = file,
+                CanCheck = file.CanRecover,
                 SizeText = file.SizeFormatted,
                 ModifiedText = file.ModifiedFormatted,
                 ChanceText = file.ChanceText,
                 Parent = parent,
-                _isChecked = isChecked(file)
+                _isChecked = file.CanRecover && isChecked(file)
             });
         }
 
@@ -105,6 +114,7 @@ public sealed class TreeNode : INotifyPropertyChanged
 
     private void SetChecked(bool? value, bool updateChildren, bool updateParent)
     {
+        if (value == true && !CanCheck) return;   // nothing here can be recovered
         if (_isChecked == value) return;
         _isChecked = value;
 
@@ -130,8 +140,10 @@ public sealed class TreeNode : INotifyPropertyChanged
         foreach (var child in Children)
             if (recursive && child.File is null) child.RefreshFromChildren(recursive: true);
 
-        bool? state = Children.All(c => c._isChecked == true) ? true
-            : Children.All(c => c._isChecked == false) ? false
+        // Only what can be checked counts: files that cannot be recovered stay unchecked without making the folder partial.
+        var checkable = Children.Where(c => c.CanCheck).ToList();
+        bool? state = checkable.Count == 0 || checkable.All(c => c._isChecked == false) ? false
+            : checkable.All(c => c._isChecked == true) ? true
             : null;
         SetChecked(state, updateChildren: false, updateParent: false);
     }

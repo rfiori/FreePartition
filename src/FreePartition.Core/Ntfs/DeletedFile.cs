@@ -5,9 +5,15 @@ namespace FreePartition.Core.Ntfs;
 public enum RecoveryChance
 {
     Unavailable,
+
+    /// <summary>The clusters are free, but what is in them is all zeros (a wipe overwrote them): nothing to recover.</summary>
+    Overwritten,
     Low,
     Medium,
-    High
+    High,
+
+    /// <summary>Found by its content signature, not by the file system: the end was worked out from the format and nothing confirms it.</summary>
+    Carved
 }
 
 public sealed record DeletedFile(
@@ -30,13 +36,20 @@ public sealed record DeletedFile(
         RecoveryChance.High => "High",
         RecoveryChance.Medium => "Medium",
         RecoveryChance.Low => "Low",
+        RecoveryChance.Overwritten => "Overwritten (zeros)",
+        RecoveryChance.Carved => "Carved (unverified)",
         _ => "Unavailable"
     };
 
+    /// <summary>There is data to read, so it can be previewed (even if it is only zeros).</summary>
     public bool IsRecoverable => Chance != RecoveryChance.Unavailable;
+
+    /// <summary>Worth recovering: there is data and it was not wiped.</summary>
+    public bool CanRecover => IsRecoverable && Chance != RecoveryChance.Overwritten;
 }
 
-public sealed record ScanProgress(long RecordsAnalyzed, long TotalRecords, int DeletedFound)
+/// <param name="Phase">What the scan is doing when it is not reading the MFT, to show instead of the MFT percentage.</param>
+public sealed record ScanProgress(long RecordsAnalyzed, long TotalRecords, int DeletedFound, string? Phase = null)
 {
     public double Percent => TotalRecords == 0 ? 0 : RecordsAnalyzed * 100.0 / TotalRecords;
 }
@@ -46,4 +59,5 @@ public sealed record ScanResult(
     int BytesPerCluster,
     long RecordsAnalyzed,
     TimeSpan Duration,
-    IReadOnlyList<DeletedFile> Files);
+    IReadOnlyList<DeletedFile> Files,
+    bool Canceled = false);

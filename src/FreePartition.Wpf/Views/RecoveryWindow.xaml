@@ -20,12 +20,18 @@
         </Border>
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Drive (NTFS):" VerticalAlignment="Center" />
+            <TextBlock Text="Drive:" VerticalAlignment="Center" />
             <ComboBox x:Name="CmbDrives" Width="80" Margin="8,0,0,0" SelectionChanged="CmbDrives_SelectionChanged" />
+            <CheckBox x:Name="ChkCarve" Content="Carve files by signature" VerticalAlignment="Center" Margin="16,0,0,0"
+                      ToolTip="Searches the whole drive for known file types by their content (photos, video, audio, documents, archives, databases, programs), ignoring the file system. Slower, and the files come back without their names and folders. Always used on FAT/exFAT and when the NTFS MFT is damaged."
+                      Checked="ChkCarve_Changed" Unchecked="ChkCarve_Changed" />
             <Button x:Name="BtnScan" Content="Scan" Padding="14,4" Margin="12,0,0,0" Click="BtnScan_Click" />
             <Button x:Name="BtnCancel" Content="Cancel" Padding="14,4" Margin="8,0,0,0"
                     IsEnabled="False" Click="BtnCancel_Click" />
         </StackPanel>
+
+        <TextBlock x:Name="TxtCarveNote" DockPanel.Dock="Top" Visibility="Collapsed" TextWrapping="Wrap"
+                   Margin="0,0,0,8" Foreground="#555555" />
 
         <Border DockPanel.Dock="Top" Margin="0,0,0,10" Padding="12,8,12,10" Background="#F7F7F7"
                 BorderBrush="#D9D9D9" BorderThickness="1" CornerRadius="3">
@@ -128,7 +134,7 @@
             <!-- Column headers; the right margin leaves room for the tree's scroll bar -->
             <DockPanel Grid.Row="0" Background="#F3F3F3" Margin="0,0,0,0" TextBlock.FontWeight="SemiBold">
                 <Border Width="20" DockPanel.Dock="Right" />
-                <TextBlock Text="Chance" Width="100" DockPanel.Dock="Right" Margin="4,4" />
+                <TextBlock Text="Chance" Width="135" DockPanel.Dock="Right" Margin="4,4" />
                 <TextBlock Text="Modified" Width="120" DockPanel.Dock="Right" Margin="4,4" />
                 <TextBlock Text="Size" Width="90" DockPanel.Dock="Right" Margin="4,4" />
                 <TextBlock Text="Name" Margin="26,4" />
@@ -191,10 +197,10 @@
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                         <DockPanel LastChildFill="True" Margin="0,1">
-                            <TextBlock Text="{Binding ChanceText}" Width="100" DockPanel.Dock="Right" Margin="4,0" />
+                            <TextBlock Text="{Binding ChanceText}" Width="135" DockPanel.Dock="Right" Margin="4,0" />
                             <TextBlock Text="{Binding ModifiedText}" Width="120" DockPanel.Dock="Right" Margin="4,0" />
                             <TextBlock Text="{Binding SizeText}" Width="90" DockPanel.Dock="Right" Margin="4,0" />
-                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" IsThreeState="True"
+                            <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" IsEnabled="{Binding CanCheck}" IsThreeState="True"
                                       VerticalAlignment="Center" Margin="0,0,6,0" />
                             <TextBlock Text="{Binding Icon}" FontFamily="Segoe MDL2 Assets" Foreground="#2F6FA8"
                                        VerticalAlignment="Center" Margin="0,0,6,0" />

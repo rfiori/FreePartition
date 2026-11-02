@@ -12,6 +12,21 @@ public static class SectorCopier
 {
     public const int DefaultChunkBytes = 4 << 20;
 
+    /// <summary>
+    /// A physical disk only accepts reads and writes that start and end on its logical sector. The chunks are a
+    /// multiple of any sector size, so checking the range once up front covers every read and write of the move,
+    /// including the shorter last chunk.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Some read or write of the move would not be sector-aligned.</exception>
+    public static void EnsureSectorAligned(long source, long destination, long length, int sectorSize)
+    {
+        if (sectorSize <= 0 || (sectorSize & (sectorSize - 1)) != 0 || DefaultChunkBytes % sectorSize != 0)
+            throw new InvalidOperationException($"Unsupported sector size: {sectorSize} bytes.");
+        if (source % sectorSize != 0 || destination % sectorSize != 0 || length % sectorSize != 0)
+            throw new InvalidOperationException(
+                $"The partition or its destination is not on a {sectorSize}-byte sector boundary of this disk. Nothing was changed.");
+    }
+
     /// <param name="progress">Fraction done, 0 to 1.</param>
     public static void Move(SafeFileHandle disk, long source, long destination, long length,
         IProgress<double>? progress = null, int chunkBytes = DefaultChunkBytes)
@@ -38,6 +53,44 @@ public static class SectorCopier
                 progress?.Report((double)done / length);
             }
             RandomAccess.FlushToDisk(disk);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Copies a byte range from one handle to another (two disks, or two places on one disk), in chunks. Unlike
+    /// <see cref="Move"/> the ranges must not overlap, and canceling is safe: the source is only read, and the
+    /// destination is not in any partition table until the caller adds it.
+    /// </summary>
+    /// <param name="progress">Fraction done, 0 to 1.</param>
+    /// <exception cref="OperationCanceledException">Canceled between two chunks.</exception>
+    public static void Copy(SafeFileHandle source, long sourceOffset, SafeFileHandle destination, long destinationOffset,
+        long length, IProgress<double>? progress = null, CancellationToken ct = default, int chunkBytes = DefaultChunkBytes)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (sourceOffset < 0 || destinationOffset < 0 || length < 0 || chunkBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(length), "Invalid range.");
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(chunkBytes);
+        try
+        {
+            long done = 0;
+            while (done < length)
+            {
+                ct.ThrowIfCancellationRequested();
+                int size = (int)Math.Min(chunkBytes, length - done);
+
+                ReadFully(source, buffer.AsSpan(0, size), sourceOffset + done);
+                RandomAccess.Write(destination, buffer.AsSpan(0, size), destinationOffset + done);
+
+                done += size;
+                progress?.Report((double)done / length);
+            }
+            RandomAccess.FlushToDisk(destination);
         }
         finally
         {

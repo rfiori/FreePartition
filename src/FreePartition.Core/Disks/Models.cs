@@ -18,6 +18,9 @@ public sealed record PartitionInfo(
     int Number = 0,   // 1-based number the Storage cmdlets use (differs from Index when WMI hides a partition, e.g. MSR)
     IReadOnlyList<string>? Details = null);   // Boot, Page File, Crash Dump, Active, partition kind...
 
+/// <summary>A Microsoft Reserved partition: the Storage stack reports it, but WMI's partition list leaves it out.</summary>
+public sealed record ReservedRange(ulong Offset, ulong Size);
+
 public sealed record DiskInfo(
     int Index,
     string Model,
@@ -27,4 +30,5 @@ public sealed record DiskInfo(
     string? Status,
     string PartitionStyle,
     IReadOnlyList<PartitionInfo> Partitions,
-    bool IsSsd = false);   // from the Storage stack (Win32_DiskDrive.MediaType cannot tell SSDs from HDDs)
+    bool IsSsd = false,
+    IReadOnlyList<ReservedRange>? Reserved = null);   // from the Storage stack (Win32_DiskDrive.MediaType cannot tell SSDs from HDDs)
