@@ -2,14 +2,16 @@
 
 <p align="center">
   <b>Free, open-source disk management for Windows.</b><br>
-  Manage partitions, check disk health and recover deleted NTFS files, all in one app.
+  Recover deleted files, carve them by signature with a preview, and manage your partitions, all in one app.
 </p>
 
 <p align="center">
+  <b>File recovery:</b> scan NTFS volumes for deleted files, or carve JPEG, PNG, PDF, DOCX, MP4 and more by
+  signature on FAT, exFAT and damaged NTFS. Preview what you found, browse every photo as a thumbnail
+  gallery, check the ones you want and recover them to another drive, never the one you are scanning.<br>
   Create, resize, move, merge, split and format partitions with a visual disk map and a
   review-then-apply queue, so nothing touches your disk until you confirm.<br>
-  Read-only SMART and NVMe health reports, and a deleted-file scanner that recovers to another
-  drive, never the one you are scanning.<br>
+  Read-only SMART and NVMe health reports.<br>
   Built with C# / .NET and WPF, inspired by the best disk managers available.
 </p>
 
@@ -65,6 +67,7 @@ dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.
 
 ## Table of contents
 
+- [File recovery](#file-recovery)
 - [What it does](#what-it-does)
 - [Screenshots](#screenshots)
 - [Releases](#releases)
@@ -75,6 +78,23 @@ dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
 - [License](#license)
+
+## File recovery
+
+**Tools → Recover deleted files** is the main feature of FreePartition. Pick a drive and scan it; the source is only
+ever read, and files are always recovered to **another** drive.
+
+| Step | What you get |
+| --- | --- |
+| **1. Scan** | **NTFS:** reads the MFT and lists deleted files with their original names and folders, plus a recovery chance for each. **FAT / exFAT / damaged NTFS:** *carves files by signature*, searching the whole drive for known formats (JPEG, PNG, GIF, BMP, WebP, PSD, PDF, DOCX/XLSX/PPTX, ZIP, 7z, MP4/MOV/HEIC, WAV, AVI, SQLite, EXE/DLL). You can also force carving on NTFS. |
+| **2. Filter** | By name, type (pictures, documents, audio, video, archives), size and modified date. |
+| **3. Preview** | Select any file, carved or not, to see it before recovering: the image, the text, or a hex dump. Nothing is written anywhere. |
+| **4. Thumbnails** | **Thumbnails…** opens a window with every image in the list (respecting the filters) as a thumbnail, so you do not have to click them one by one. Click a thumbnail to check it, **drag** across several to check or uncheck them all, or **Shift+click** to take a whole range. Programs (EXE, DLL, SCR, OCX, CPL) show their own **application icon**, read from the file's resources in memory. A slider changes the thumbnail size. |
+| **5. Recover** | Check the files and recover them to a folder on another drive. NTFS files keep their original folders; carved files are grouped by type. |
+
+Carving is the way to get photos and documents back from a formatted memory card or USB stick, where no file names
+survive: scan, open **Thumbnails…**, check the pictures you recognize and recover them. See
+[How recovery works](#how-recovery-works) for the details and limits.
 
 ## What it does
 
@@ -97,7 +117,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Properties** | Usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
 | **Verify wipe** | Reads a whole volume (also a RAW one) and checks that nothing is left after a wipe: counts the bytes that are not zero, shows where the first one is with a hex dump and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
 | **Cluster map** | Draws a whole volume (also a RAW one) as a grid. Each square is classified as zero, data or unreadable from three 4 KB samples; clicking a square shows its byte range, its NTFS clusters and a hex dump. |
-| **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS (see below). |
+| **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS, with preview and a thumbnail gallery (see [File recovery](#file-recovery)). |
 | **Recover partitions** | Looks in the unallocated space of the selected disk for NTFS, FAT32 and exFAT partitions missing from the partition table (read-only) and queues the ones you check to be put back. Only the table is written, never the files (see below). |
 
 **Create**
@@ -150,7 +170,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 
 | Tool | What it does |
 | --- | --- |
-| **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date and a read-only preview (image, text or hex dump) of the selected file. Shows a TRIM warning when the drive is on an SSD. |
+| **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date, a read-only preview (image, text or hex dump) of the selected file and a **Thumbnails…** gallery of all the images (click, drag or Shift+click to check them). Also carves files by signature. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
 
 Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
@@ -222,6 +242,10 @@ PSD/PSB, PDF, DOCX/XLSX/PPTX, ZIP, MP4, MOV, M4A, 3GP, HEIC, AVIF, WAV, AVI, 7z,
 
 It is on by default for FAT/exFAT drives, and the scan switches to it by itself when the NTFS MFT cannot be read.
 
+- Carved files can be previewed like any other, and the **Thumbnails…** gallery shows all carved images at once
+  (JPEG, PNG, GIF, BMP; images over 16 MB and formats Windows cannot decode show a placeholder).
+- A carved or deleted **EXE/DLL** shows its icon in the gallery and above its hex dump in the preview. Programs without an
+  icon, over 32 MB, or cut by fragmentation show "No icon". The list itself still uses one generic icon.
 - Files come back as `carved_00001.jpg`, grouped by type, without names, folders or dates.
 - A fragmented file is cut at the first gap, so it may be incomplete or damaged.
 - Files whose end has to be searched for (JPEG, PNG, GIF, PDF, ZIP) are skipped past 256 MiB; formats that state their
@@ -296,6 +320,8 @@ The guarantees the code is built around:
 - ✅ Filter by name
 - ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
 - ✅ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
+- ✅ Thumbnail gallery of recoverable images, with click, drag and Shift+click selection
+- ✅ Application icon of recovered programs (EXE, DLL…) in the gallery and the preview
 - ✅ Recover lost partitions (NTFS, FAT32, exFAT by boot sector; not yet run on a VHD)
 - ✅ Explicit TRIM warning on SSD
 
@@ -325,6 +351,8 @@ The guarantees the code is built around:
   and 33 at the end and refuses dynamic disks; GPT → MBR needs at most four partitions, none past 2 TB. Logical partitions
   become ordinary ones, and drive letters may change (the app tries to restore them).
 - Carving, lost-partition scan, Clone, Convert and the wipes have not been run on a real disk yet: test them on a VHD first.
+- The thumbnail gallery reads files from the drive one at a time (in order, which is what a spinning disk handles best) and
+  decodes them on several cores. It is not virtualized, so a list of thousands of images still takes a while to fill in.
 - The partition "Type" column only shows Primary / EFI / Other, and the UI is code-behind (no MVVM yet).
 
 ## Contributing

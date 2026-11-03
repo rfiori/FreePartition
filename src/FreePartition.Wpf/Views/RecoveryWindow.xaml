@@ -96,6 +96,9 @@
             <DockPanel Margin="0,8,0,0">
                 <Button x:Name="BtnRecover" DockPanel.Dock="Right" Content="Recover checked…"
                         Padding="14,4" IsEnabled="False" Click="BtnRecover_Click" />
+                <Button x:Name="BtnThumbnails" DockPanel.Dock="Right" Content="Thumbnails…" Margin="0,0,8,0"
+                        Padding="14,4" IsEnabled="False" Click="BtnThumbnails_Click"
+                        ToolTip="Opens a window with thumbnails of all the images in the list (respecting the filters), so you can check them at a glance." />
                 <TextBlock x:Name="TxtFileStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
             </DockPanel>
         </StackPanel>
@@ -115,6 +118,9 @@
                 <TextBlock Text="Preview" DockPanel.Dock="Top" FontWeight="SemiBold" Margin="4,4" Background="#F3F3F3" />
                 <TextBlock x:Name="TxtPreviewInfo" DockPanel.Dock="Bottom" TextWrapping="Wrap" Margin="0,4,0,0"
                            Foreground="#666666" />
+                <!-- Icon of a program (EXE, DLL...), shown above its hex dump -->
+                <Image x:Name="ImgIcon" DockPanel.Dock="Top" Height="64" Width="64" HorizontalAlignment="Left"
+                       Margin="4" Visibility="Collapsed" />
                 <Border BorderThickness="1" BorderBrush="#D9D9D9">
                     <Grid>
                         <Image x:Name="ImgPreview" Stretch="Uniform" Visibility="Collapsed" Margin="4" />
