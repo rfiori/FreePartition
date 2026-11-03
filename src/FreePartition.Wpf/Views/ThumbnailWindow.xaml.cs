@@ -26,6 +26,13 @@ public partial class ThumbnailWindow : Window
     private readonly List<ThumbnailItem> _items;
     private readonly CancellationTokenSource _cts = new();
 
+    /// <summary>Items shown (and decoded) at a time; the rest wait on other pages so the list and memory stay manageable.</summary>
+    private const int PageSize = 1000;
+
+    private CancellationTokenSource? _pageCts;
+    private List<ThumbnailItem> _pageItems = [];
+    private int _pageIndex;
+
     public ThumbnailWindow(ScanResult result, IEnumerable<DeletedFile> images, HashSet<long> checkedFiles, Action onCheckedChanged)
     {
         InitializeComponent();
@@ -35,10 +42,37 @@ public partial class ThumbnailWindow : Window
         _onCheckedChanged = onCheckedChanged;
         _items = images.Select(f => new ThumbnailItem(f, _checked.Contains(f.MftRecordNumber), OnItemChecked)).ToList();
 
-        Items.ItemsSource = _items;
         UpdateSummary();
-        Loaded += async (_, _) => await LoadThumbnailsAsync();
+        Loaded += (_, _) => ShowPage(0);
     }
+
+    private int PageCount => Math.Max(1, (_items.Count + PageSize - 1) / PageSize);
+
+    private void ShowPage(int pageIndex)
+    {
+        _pageCts?.Cancel();
+        foreach (var old in _pageItems) old.ClearThumbnail();   // free the decoded images of the page being left
+
+        _pageIndex = Math.Clamp(pageIndex, 0, PageCount - 1);
+        _pageItems = _items.Skip(_pageIndex * PageSize).Take(PageSize).ToList();
+        _anchor = null;
+
+        Items.ItemsSource = _pageItems;
+        if (_pageItems.Count > 0) Items.ScrollIntoView(_pageItems[0]);
+
+        PagerPanel.Visibility = PageCount > 1 ? Visibility.Visible : Visibility.Collapsed;
+        BtnPrev.IsEnabled = _pageIndex > 0;
+        BtnNext.IsEnabled = _pageIndex < PageCount - 1;
+        int first = _pageItems.Count == 0 ? 0 : _pageIndex * PageSize + 1;
+        TxtPage.Text = $"Page {_pageIndex + 1:N0} / {PageCount:N0} ({first:N0}–{_pageIndex * PageSize + _pageItems.Count:N0})";
+
+        _pageCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _ = LoadThumbnailsAsync(_pageItems, _pageCts.Token);
+    }
+
+    private void BtnPrev_Click(object sender, RoutedEventArgs e) => ShowPage(_pageIndex - 1);
+
+    private void BtnNext_Click(object sender, RoutedEventArgs e) => ShowPage(_pageIndex + 1);
 
     public double CellWidth
     {
@@ -64,9 +98,8 @@ public partial class ThumbnailWindow : Window
     /// others decode them at once, one per spare core, which is the slow part for large photos. Each cell fills in as soon
     /// as its image is decoded, so they may complete slightly out of order.
     /// </summary>
-    private async Task LoadThumbnailsAsync()
+    private async Task LoadThumbnailsAsync(List<ThumbnailItem> pageItems, CancellationToken token)
     {
-        var token = _cts.Token;
         int decoders = Math.Clamp(Environment.ProcessorCount - 1, 1, 8);
         var queue = Channel.CreateBounded<Work>(new BoundedChannelOptions(decoders) { SingleWriter = true });
         int done = 0;
@@ -78,8 +111,8 @@ public partial class ThumbnailWindow : Window
             {
                 if (token.IsCancellationRequested) return;
                 if (thumbnail is not null || error is not null) item.SetThumbnail(thumbnail, error);   // else keep the cell's own text
-                TxtStatus.Text = count < _items.Count
-                    ? $"Loading thumbnails... {count:N0} / {_items.Count:N0}"
+                TxtStatus.Text = count < pageItems.Count
+                    ? $"Loading thumbnails... {count:N0} / {pageItems.Count:N0}"
                     : $"{count:N0} thumbnail(s) loaded.";
             });
         }
@@ -88,7 +121,7 @@ public partial class ThumbnailWindow : Window
         {
             try
             {
-                foreach (var item in _items)
+                foreach (var item in pageItems)
                 {
                     token.ThrowIfCancellationRequested();
                     if (!item.File.CanRecover)   // wiped: nothing to show, the cell already says so
@@ -181,9 +214,9 @@ public partial class ThumbnailWindow : Window
 
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) && _anchor is not null)
         {
-            int from = _items.IndexOf(_anchor), to = _items.IndexOf(item);
+            int from = _pageItems.IndexOf(_anchor), to = _pageItems.IndexOf(item);
             for (int i = Math.Min(from, to); i <= Math.Max(from, to); i++)
-                _items[i].IsChecked = _anchorState;
+                _pageItems[i].IsChecked = _anchorState;
         }
         else
         {
@@ -280,6 +313,16 @@ public sealed class ThumbnailItem : INotifyPropertyChanged
             Notify(nameof(IsChecked));
             _onChecked(this);
         }
+    }
+
+    /// <summary>Drops the decoded image (when its page is left) and goes back to the "Loading..." text.</summary>
+    public void ClearThumbnail()
+    {
+        if (_thumbnail is null) return;
+        _thumbnail = null;
+        _placeholder = "Loading...";
+        Notify(nameof(Thumbnail));
+        Notify(nameof(Placeholder));
     }
 
     public void SetThumbnail(BitmapSource? thumbnail, string? error)

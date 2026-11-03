@@ -18,6 +18,11 @@
 
         <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
             <Button DockPanel.Dock="Right" Content="Done" Padding="18,4" IsDefault="True" Click="BtnDone_Click" />
+            <StackPanel x:Name="PagerPanel" DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,12,0" Visibility="Collapsed">
+                <Button x:Name="BtnPrev" Content="◀ Previous" Padding="10,3" Click="BtnPrev_Click" />
+                <TextBlock x:Name="TxtPage" VerticalAlignment="Center" Margin="10,0" Foreground="#555555" />
+                <Button x:Name="BtnNext" Content="Next ▶" Padding="10,3" Click="BtnNext_Click" />
+            </StackPanel>
             <TextBlock x:Name="TxtStatus" VerticalAlignment="Center" Foreground="#666666" />
         </DockPanel>
 
