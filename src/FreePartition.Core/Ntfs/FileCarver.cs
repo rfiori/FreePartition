@@ -127,8 +127,7 @@ public sealed class FileCarver
             if (++chunkNumber % ReportEveryChunks == 0)
             {
                 long total = Math.Max(expectedLength, position);
-                progress?.Report(new ScanProgress(position, total, files.Count,
-                    $"Searching for file signatures... {position * 100.0 / total:0}%"));
+                progress?.Report(new ScanProgress(position, total, files.Count));
             }
 
             if (bytesRead < ChunkSize) break;

@@ -162,12 +162,19 @@ public partial class RecoveryWindow : Window
         Progress.Value = 0;
 
         bool carving = carve;
+        _lastProgress = null;
+        _scanClock.Restart();
         var progress = new Progress<ScanProgress>(p =>
         {
             Progress.Value = p.Percent;
-            TxtFileStatus.Text = carving
-                ? $"{p.Phase ?? "Searching for file signatures..."} — {p.DeletedFound:N0} file(s) found"
-                : p.Phase is { } phase
+            if (carving)
+            {
+                _lastProgress = p;
+                ShowCarvingStatus();
+                return;
+            }
+
+            TxtFileStatus.Text = p.Phase is { } phase
                     ? $"{phase} — {p.DeletedFound:N0} deleted file(s) found"
                     : $"Analyzing the MFT... {p.Percent:0}% — {p.DeletedFound:N0} deleted file(s) found";
         });
@@ -190,7 +197,11 @@ public partial class RecoveryWindow : Window
             }
 
             if (carving)
+            {
+                _lastProgress = null;
+                _scanClock.Restart();   // the elapsed time and speed shown are those of the carving, not of the MFT attempt
                 _result = await new FileCarver().ScanAsync(drive, progress, _cts.Token);
+            }
 
             RebuildTree();
 
@@ -227,8 +238,32 @@ public partial class RecoveryWindow : Window
 
     private void BtnCancel_Click(object sender, RoutedEventArgs e) => _cts?.Cancel();
 
+    private readonly System.Diagnostics.Stopwatch _scanClock = new();
+    private ScanProgress? _lastProgress;
+    private System.Windows.Threading.DispatcherTimer? _ticker;
+
+    /// <summary>Carving reports only every few MB, and a big drive moves the percentage rarely: the clock proves it is alive.</summary>
+    private void ShowCarvingStatus()
+    {
+        if (!_busy || _lastProgress is not { } p) return;
+
+        TxtFileStatus.Text = ScanStatusFormatter.Carving(p.RecordsAnalyzed, p.TotalRecords, _scanClock.Elapsed, p.DeletedFound);
+    }
+
     private void ToggleScan(bool running)
     {
+        if (running)
+        {
+            _ticker ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _ticker.Tick -= Ticker_Tick;
+            _ticker.Tick += Ticker_Tick;
+            _ticker.Start();
+        }
+        else
+        {
+            _ticker?.Stop();
+        }
+
         BtnScan.IsEnabled = !running;
         BtnCancel.IsEnabled = running;
         CmbDrives.IsEnabled = !running;
@@ -236,6 +271,8 @@ public partial class RecoveryWindow : Window
         _busy = running;
         UpdateRecoverButton();
     }
+
+    private void Ticker_Tick(object? sender, EventArgs e) => ShowCarvingStatus();
 
     private void RebuildTree()
     {
@@ -258,6 +295,26 @@ public partial class RecoveryWindow : Window
     {
         BtnRecover.IsEnabled = !_busy && _checked.Count > 0;
         BtnRecover.Content = _checked.Count > 0 ? $"Recover checked ({_checked.Count:N0})…" : "Recover checked…";
+        BtnThumbnails.IsEnabled = !_busy && _result is { Files.Count: > 0 };
+    }
+
+    private void BtnThumbnails_Click(object sender, RoutedEventArgs e)
+    {
+        var result = _result;
+        if (result is null) return;
+
+        // Same list the tree shows, so the filters narrow the gallery too.
+        var images = BuildFilter().Apply(result.Files)
+            .Where(f => f.IsRecoverable && (FilePreviewReader.KindOf(f.Name) == PreviewKind.Image || FilePreviewReader.HasIcon(f.Name)))
+            .ToList();
+        if (images.Count == 0)
+        {
+            MessageBox.Show(this, "There are no images or programs to show in the current list.", "Notice");
+            return;
+        }
+
+        new ThumbnailWindow(result, images, _checked, UpdateRecoverButton) { Owner = this }.ShowDialog();
+        RebuildTree();   // the tree check boxes follow what was checked in the gallery
     }
 
     private void TxtFilter_TextChanged(object sender, TextChangedEventArgs e) => RebuildTree();
@@ -319,10 +376,34 @@ public partial class RecoveryWindow : Window
             if (version != _previewVersion) return;   // another file was selected meanwhile
 
             ShowPreview(preview, file);
+
+            if (FilePreviewReader.HasIcon(file.Name))
+            {
+                var icon = await Task.Run(() => LoadIcon(result, file));
+                if (version == _previewVersion && icon is not null)
+                {
+                    ImgIcon.Source = icon;
+                    ImgIcon.Visibility = Visibility.Visible;
+                }
+            }
         }
         catch (Exception ex)
         {
             if (version == _previewVersion) TxtPreviewInfo.Text = $"Preview failed: {ex.Message}";
+        }
+    }
+
+    /// <summary>The program's icon, or null when it has none or cannot be read: the hex dump is shown anyway.</summary>
+    private static System.Windows.Media.Imaging.BitmapSource? LoadIcon(ScanResult result, DeletedFile file)
+    {
+        try
+        {
+            return FilePreviewReader.ReadIcon(result, file) is { } ico ? IconDecoder.Largest(ico) : null;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or FileFormatException
+                                       or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
         }
     }
 
@@ -369,6 +450,8 @@ public partial class RecoveryWindow : Window
     {
         ImgPreview.Source = null;
         ImgPreview.Visibility = Visibility.Collapsed;
+        ImgIcon.Source = null;
+        ImgIcon.Visibility = Visibility.Collapsed;
         TxtPreview.Clear();
         TxtPreview.Visibility = Visibility.Collapsed;
         TxtPreviewInfo.Text = "";
