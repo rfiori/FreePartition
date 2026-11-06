@@ -31,7 +31,7 @@
 - [.NET SDK 10](https://dotnet.microsoft.com/download)
 - Administrator rights to run the app (raw volume access and partition)
 
-## Quick start fo devs
+## Quick start for devs
 
 ```bash
 git clone https://github.com/rfiori/FreePartition.git
