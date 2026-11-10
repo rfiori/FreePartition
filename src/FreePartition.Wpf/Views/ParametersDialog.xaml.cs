@@ -23,6 +23,7 @@ public partial class ParametersDialog : Window
     public ParametersDialog(string title, string description, IReadOnlyList<DialogField> fields)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         Title = title;
         TxtDescription.Text = description;
 

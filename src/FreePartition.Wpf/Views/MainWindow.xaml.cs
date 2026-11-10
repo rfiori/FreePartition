@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        WindowFit.Apply(this, maximizeWhenShrunk: true);   // small screens (WinPE): fit and maximize
 
         // Windows drive (e.g. 'C'): formatting it or changing its letter is blocked.
         _systemLetter = Path.GetPathRoot(Environment.SystemDirectory) is { Length: > 0 } root ? char.ToUpperInvariant(root[0]) : null;

@@ -13,6 +13,7 @@ public partial class HealthWindow : Window
     public HealthWindow()
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         Loaded += async (_, _) => await LoadAsync();
     }
 
