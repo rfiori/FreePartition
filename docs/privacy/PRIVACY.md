@@ -34,7 +34,7 @@ This information stays on your machine and is never uploaded.
 The app writes a single local file, the operations log:
 
 ```
-%LocalAppData%\FreePartition\operations.log
+Log\operations.log   (next to FreePartition.exe; %LocalAppData%\FreePartition if not writable)
 ```
 
 It records the actions queued and applied in the app (for example, a format or resize, with

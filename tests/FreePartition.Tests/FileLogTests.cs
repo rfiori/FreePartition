@@ -99,11 +99,9 @@ public sealed class FileLogTests : IDisposable
     }
 
     [Fact]
-    public void DefaultPath_IsUnderLocalAppData()
+    public void DefaultPath_IsLogFolderNextToTheExecutable()
     {
-        string expected = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "FreePartition", "operations.log");
+        string expected = Path.Combine(AppContext.BaseDirectory, "Log", "operations.log");
 
         Assert.Equal(expected, FileLog.DefaultPath);
     }

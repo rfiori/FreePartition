@@ -289,7 +289,7 @@ The guarantees the code is built around:
 - **Move partition cannot be canceled once the copy starts, and a power failure corrupts that partition** — the app says
   so before and when applying. On SSDs, wipes cannot reach the drive's spare cells and the app warns about it.
 - The queue stops at the first failure; the remaining operations stay pending.
-- Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
+- Every event is logged to `Log\operations.log` next to the executable (or `%LocalAppData%\FreePartition\operations.log` if that folder is not writable).
 
 ## Roadmap
 
