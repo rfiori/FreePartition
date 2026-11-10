@@ -27,6 +27,7 @@ public partial class ResizeDialog : Window
     public ResizeDialog(char drive, ulong current, ulong used, ulong max, ulong? dataBytes = null)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         _current = (long)current;
         _max = Math.Max((long)max, _current);
         _used = Math.Min((long)used, _current);

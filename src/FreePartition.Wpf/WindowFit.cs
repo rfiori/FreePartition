@@ -35,5 +35,18 @@ public static class WindowFit
         }
 
         if (shrunk && maximizeWhenShrunk) window.WindowState = WindowState.Maximized;
+
+        // CenterOwner centers on the parent; if the parent is partly off-screen the child would be too.
+        window.Loaded += (_, _) => KeepOnScreen(window);
+    }
+
+    private static void KeepOnScreen(Window window)
+    {
+        if (window.WindowState != WindowState.Normal) return;
+        Rect area = SystemParameters.WorkArea;
+        double left = Math.Min(Math.Max(window.Left, area.Left), Math.Max(area.Left, area.Right - window.ActualWidth));
+        double top = Math.Min(Math.Max(window.Top, area.Top), Math.Max(area.Top, area.Bottom - window.ActualHeight));
+        if (!double.IsNaN(left)) window.Left = left;
+        if (!double.IsNaN(top)) window.Top = top;
     }
 }
