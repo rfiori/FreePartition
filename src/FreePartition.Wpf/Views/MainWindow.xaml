@@ -565,7 +565,8 @@
                     <RowDefinition Height="*" MinHeight="120" />
                     <RowDefinition Height="5" />
                     <RowDefinition Height="210" MinHeight="110" />
-                    <RowDefinition Height="Auto" />
+                    <RowDefinition x:Name="LogSplitterRow" Height="0" />
+                    <RowDefinition x:Name="LogRow" Height="0" />
                 </Grid.RowDefinitions>
 
                 <DataGrid x:Name="DisksGrid" Grid.Row="0" AutoGenerateColumns="False" IsReadOnly="True"
@@ -624,10 +625,16 @@
                     <StackPanel x:Name="DiskMap" Margin="8,8,8,4" />
                 </ScrollViewer>
 
-                <!-- Operations log (shown when applying or via the View menu) -->
-                <TextBox x:Name="TxtOperationsLog" Grid.Row="3" Height="110" IsReadOnly="True" Visibility="Collapsed"
-                         VerticalScrollBarVisibility="Auto" FontFamily="Consolas" TextWrapping="Wrap"
-                         BorderThickness="0,1,0,0" BorderBrush="{StaticResource Line}" />
+                <!-- Operations log (shown when applying or via the View menu).
+                     Drag the bar above it to resize; Ctrl + mouse wheel changes the font size. -->
+                <GridSplitter x:Name="LogSplitter" Grid.Row="3" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                              ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Background="#EFEFEF"
+                              Visibility="Collapsed" />
+                <TextBox x:Name="TxtOperationsLog" Grid.Row="4" IsReadOnly="True" Visibility="Collapsed"
+                         VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
+                         BorderThickness="0,1,0,0" BorderBrush="{StaticResource Line}"
+                         ToolTip="Ctrl + mouse wheel: change the font size"
+                         PreviewMouseWheel="TxtOperationsLog_PreviewMouseWheel" />
             </Grid>
         </Grid>
     </DockPanel>

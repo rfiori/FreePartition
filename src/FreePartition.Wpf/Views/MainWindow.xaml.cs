@@ -1430,8 +1430,24 @@ public partial class MainWindow : Window
         new LostPartitionsWindow(_disks, Selected?.DiskIndex ?? _disks[0].Index, TryQueue) { Owner = this }.Show();
     }
 
-    private void MenuShowLog_Changed(object sender, RoutedEventArgs e) =>
-        TxtOperationsLog.Visibility = MenuShowLog.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+    private void MenuShowLog_Changed(object sender, RoutedEventArgs e)
+    {
+        bool show = MenuShowLog.IsChecked;
+        TxtOperationsLog.Visibility = LogSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+        // The log lives in its own row (resizable with the splitter); collapse the rows when it is hidden.
+        LogSplitterRow.Height = new GridLength(show ? 5 : 0);
+        LogRow.MinHeight = show ? 40 : 0;
+        LogRow.Height = new GridLength(show ? 130 : 0);
+    }
+
+    /// <summary>Ctrl + mouse wheel zooms the log text (8 to 24 pt).</summary>
+    private void TxtOperationsLog_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+        TxtOperationsLog.FontSize = Math.Clamp(TxtOperationsLog.FontSize + (e.Delta > 0 ? 1 : -1), 8, 24);
+        e.Handled = true;
+    }
 
     private void MenuOpenLog_Click(object sender, RoutedEventArgs e)
     {
