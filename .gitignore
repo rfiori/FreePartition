@@ -3,3 +3,6 @@ obj/
 .vs/
 *.user
 .claude/
+
+tools/winpe/out/
+tools/winpe/work/
