@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using FreePartition.Core.Cloning;
 using FreePartition.Core.Disks;
 using FreePartition.Core.Operations;
 using FreePartition.Core.Util;
@@ -57,6 +58,8 @@ public partial class MainWindow : Window
         // Windows drive (e.g. 'C'): formatting it or changing its letter is blocked.
         _systemLetter = Path.GetPathRoot(Environment.SystemDirectory) is { Length: > 0 } root ? char.ToUpperInvariant(root[0]) : null;
         _queue = new OperationQueue(_systemLetter, new FileLog(FileLog.DefaultPath));
+        // A running Windows cannot be copied consistently, so this only works from WinPE.
+        MenuCloneWindows.IsEnabled = BtnCloneWindows.IsEnabled = WinPeDetector.IsWinPe();
         _queue.Changed += (_, _) => RefreshPending();
         Loaded += (_, _) => DisksGrid.ContextMenu = BuildContextMenu();
 
@@ -1455,6 +1458,32 @@ public partial class MainWindow : Window
         if (folder is null) return;
         Directory.CreateDirectory(folder);
         Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+    }
+
+    private void MenuCloneWindows_Click(object sender, RoutedEventArgs e)
+    {
+        const string title = "Clone Windows to another disk";
+        if (_disks.Count == 0) return;
+        if (_queue.Pending.Count > 0)
+        {
+            MessageBox.Show(this, "There are pending operations. Apply or undo them first: cloning Windows works on the disks as they are now.",
+                title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var installs = WindowsInstallFinder.Find(_disks, _systemLetter);
+        if (installs.Count == 0)
+        {
+            MessageBox.Show(this, "No installed Windows was found. A Windows partition needs a drive letter to be found: " +
+                "use \"Show partition\" to give it one, then refresh the disks.", title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (_disks.Count < 2)
+        {
+            MessageBox.Show(this, "There is only one disk. Connect the destination disk, then refresh the disks.", title,
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        new CloneWindowsWindow(_disks, installs, () => _ = LoadDisksAsync()) { Owner = this }.ShowDialog();
     }
 
     private void BtnDiskHealth_Click(object sender, RoutedEventArgs e) =>

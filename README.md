@@ -12,6 +12,8 @@
   Create, resize, move, merge, split and format partitions with a visual disk map and a
   review-then-apply queue, so nothing touches your disk until you confirm.<br>
   Read-only SMART and NVMe health reports.<br>
+  From the bootable WinPE build, copy an installed Windows to another disk in one guided window, boot files and
+  recovery partition included.<br>
   Built with C# / .NET and WPF, inspired by the best disk managers available.
 </p>
 
@@ -69,6 +71,7 @@ dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.
 
 - [File recovery](#file-recovery)
 - [What it does](#what-it-does)
+- [Clone Windows to another disk](#clone-windows-to-another-disk)
 - [Screenshots](#screenshots)
 - [Releases](#releases)
 - [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
@@ -172,8 +175,35 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | --- | --- |
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date, a read-only preview (image, text or hex dump) of the selected file and a **Thumbnails…** gallery of all the images (click, drag or Shift+click to check them). Also carves files by signature. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
+| **Clone Windows to another disk** (Tools menu and toolbar) | Copies an installed Windows to another disk so the new disk boots on its own: initializes the destination, creates the boot partition, copies Windows and the recovery partition and writes the boot files. Enabled only when the app runs from the [WinPE build](tools/winpe/README.md), where the source Windows is not in use (see [below](#clone-windows-to-another-disk)). |
 
 Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
+
+## Clone Windows to another disk
+
+Windows cannot be copied consistently while it is running, so this tool is only enabled when FreePartition runs from
+the [WinPE build](tools/winpe/README.md) (the app detects it). Boot the PC from that USB drive or ISO, then use
+**Tools → Clone Windows to another disk…** or the **Clone Windows** toolbar button. A single window guides you and
+shows each step with its status (*OK*, *Skipped* or *Failed*):
+
+| Step | What it does |
+| --- | --- |
+| **1. Check the disks** | The destination must be a different disk, large enough for the boot partition, Windows and the recovery partition. |
+| **2. Erase and initialize** | Wipes the destination disk and initializes it as GPT (UEFI source) or MBR (BIOS source). |
+| **3. Create the boot partition** | EFI system partition plus MSR on GPT; an active *System Reserved* partition on MBR. |
+| **4. Copy the Windows partition** | Sector by sector, the same copy as **Clone partition**. |
+| **5. Copy the recovery partition** | Creates it and copies its files. Skipped when the source has none; a failure here is only a warning. |
+| **6. Write the boot files** | `bcdboot`; if it refuses the copy (for example Windows 7 from a recent WinPE), the source's own boot files are copied and its boot store is repointed to the new disk. |
+| **7. Verify the result** | Checks that the boot loader and the boot store exist and that the default entry points to the copy. |
+
+- The **destination disk is erased**; the source is only read. You must tick a confirmation before it starts.
+- The copy has the exact size of the Windows partition: for a smaller destination, shrink the Windows partition first.
+- Windows must have been shut down completely (Fast Startup leaves a half-saved session; `hiberfil.sys` is also removed
+  from the copy).
+- A GPT source needs the computer in UEFI mode, an MBR source in BIOS (legacy) mode.
+- To test the result, disconnect the old disk and start from the new one.
+
+Details and requirements: [tools/winpe/README.md](tools/winpe/README.md).
 
 ## Screenshots
 
@@ -329,6 +359,7 @@ The guarantees the code is built around:
 - ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
 - ✅ Clone partition (same or another disk, into unallocated space; not yet run on a VHD)
 - ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from; not yet run on a VHD)
+- ✅ Clone Windows to another disk from WinPE, with boot files and recovery partition (verified in a VM with a Windows 7 32-bit MBR/BIOS disk, which booted from the copy; UEFI/GPT and a source with a recovery partition not yet run)
 
 ## Known limitations
 
@@ -347,6 +378,9 @@ The guarantees the code is built around:
   `\FreePartition_Convert_<drive>` on the staging drive.
 - **Clone partition**: NTFS, FAT32 and exFAT only, to disks with the same sector size, into unallocated space at least as
   large as the partition (resize it afterwards). The copy keeps the volume serial number; on MBR it needs a free primary slot.
+- **Clone Windows to another disk**: WinPE only, and the destination disk is erased entirely (even when much larger than
+  the source). The Windows partition keeps its size, so a smaller destination needs the source shrunk first. Only tested
+  with a Windows 7 MBR/BIOS disk in VirtualBox; the UEFI/GPT path and the recovery partition copy have not been run yet.
 - **Convert MBR / GPT**: not the disk Windows boots from (use `mbr2gpt.exe`). MBR → GPT needs 34 sectors free at the start
   and 33 at the end and refuses dynamic disks; GPT → MBR needs at most four partitions, none past 2 TB. Logical partitions
   become ordinary ones, and drive letters may change (the app tries to restore them).

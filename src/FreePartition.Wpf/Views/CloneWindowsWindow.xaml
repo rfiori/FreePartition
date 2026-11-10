@@ -1,0 +1,69 @@
+<Window x:Class="FreePartition.Wpf.CloneWindowsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clone Windows to another disk" Width="760" Height="720" MinWidth="620" MinHeight="460"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Background="White">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="BtnStart" Content="Clone Windows" Padding="22,4" Click="Start_Click" />
+            <Button x:Name="BtnCancel" Content="Cancel" Padding="18,4" Margin="8,0,0,0" IsEnabled="False" Click="Cancel_Click" />
+            <Button x:Name="BtnClose" Content="Close" IsCancel="True" Padding="26,4" Margin="8,0,0,0" Click="Close_Click" />
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="0,0,12,0">
+                <TextBlock TextWrapping="Wrap" Foreground="#333"
+                           Text="Copies an installed Windows to another disk so the new disk starts on its own: it creates the boot partition, copies Windows and the recovery partition, and writes the boot files. The source disk is only read; the destination disk is erased." />
+
+                <Border Background="#EAF3FB" BorderBrush="#9CC3E6" BorderThickness="1" Padding="10,8" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Before you start" FontWeight="SemiBold" />
+                        <TextBlock TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="1. Windows must have been shut down completely. Fast Startup leaves a half-saved session on the disk: turn it off or shut down with Shift held down, or start the computer again and shut it down from the Start menu." />
+                        <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
+                                   Text="2. The destination disk must be at least as large as the space the copy needs (shown below). To copy to a smaller disk, first shrink the Windows partition in the main window (Resize) and apply it." />
+                        <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
+                                   Text="3. The copy starts in the same mode as the source: a GPT disk needs UEFI, an MBR disk needs the BIOS (legacy) mode. The computer's firmware has to be set to that mode." />
+                        <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
+                                   Text="4. Everything on the destination disk is lost. Check the disk number and model." />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="Windows to copy:" FontWeight="SemiBold" Margin="0,12,0,0" />
+                <ComboBox x:Name="CmbSource" Margin="0,4,0,0" SelectionChanged="Selection_Changed" />
+
+                <TextBlock Text="Copy to (this disk is erased):" FontWeight="SemiBold" Margin="0,10,0,0" />
+                <ComboBox x:Name="CmbDestination" Margin="0,4,0,0" SelectionChanged="Selection_Changed" />
+
+                <TextBlock x:Name="TxtPlan" TextWrapping="Wrap" Foreground="#555" Margin="0,8,0,0" />
+                <Border x:Name="ProblemBox" Visibility="Collapsed" Background="#FDE7E9" BorderBrush="#E08A92" BorderThickness="1"
+                        Padding="10,8" Margin="0,8,0,0">
+                    <TextBlock x:Name="TxtProblem" TextWrapping="Wrap" />
+                </Border>
+
+                <CheckBox x:Name="ChkErase" Margin="0,10,0,0" Checked="Selection_Changed" Unchecked="Selection_Changed">
+                    <TextBlock x:Name="TxtErase" TextWrapping="Wrap" Text="I understand that the destination disk will be erased." />
+                </CheckBox>
+
+                <TextBlock Text="Progress" FontWeight="SemiBold" Margin="0,14,0,0" />
+                <ItemsControl x:Name="StepsList" Margin="0,4,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Status}" FontWeight="SemiBold" Foreground="{Binding StatusBrush}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Title}" TextWrapping="Wrap" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBox x:Name="TxtLog" Height="150" Margin="0,10,0,0" IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

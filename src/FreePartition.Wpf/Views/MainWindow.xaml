@@ -10,6 +10,25 @@
         <SolidColorBrush x:Key="Hover" Color="#E3EFFA" />
         <SolidColorBrush x:Key="Selection" Color="#CDE5F7" />
 
+        <!-- "Clone Windows" icon: the Windows logo (four panes) in front of a lighter copy of it -->
+        <Viewbox x:Key="CloneWindowsIcon" x:Shared="False" Stretch="Uniform">
+            <Viewbox.Style>
+                <Style TargetType="Viewbox">
+                    <Style.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Viewbox.Style>
+            <Canvas Width="24" Height="24">
+                <Path Fill="{StaticResource Accent}" Opacity="0.45"
+                      Data="M9,9 H15 V15 H9 Z M16,9 H22 V15 H16 Z M9,16 H15 V22 H9 Z M16,16 H22 V22 H16 Z" />
+                <Path Fill="{StaticResource Accent}" Stroke="White" StrokeThickness="0.9"
+                      Data="M1,1 H7 V7 H1 Z M8,1 H14 V7 H8 Z M1,8 H7 V14 H1 Z M8,8 H14 V14 H8 Z" />
+            </Canvas>
+        </Viewbox>
+
         <!-- Toolbar button: icon on top, small text below -->
         <Style x:Key="ToolbarButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
@@ -192,6 +211,13 @@
                                    Width="Auto" HorizontalAlignment="Center" />
                     </MenuItem.Icon>
                 </MenuItem>
+                <MenuItem x:Name="MenuCloneWindows" Header="Clone Windows to another disk…" Click="MenuCloneWindows_Click"
+                          ToolTipService.ShowOnDisabled="True"
+                          ToolTip="Copies an installed Windows to another disk, with its boot files. Only available when FreePartition runs from WinPE.">
+                    <MenuItem.Icon>
+                        <ContentControl Content="{StaticResource CloneWindowsIcon}" Width="16" Height="16" />
+                    </MenuItem.Icon>
+                </MenuItem>
                 <MenuItem Header="Disk health (S.M.A.R.T.)…" Click="BtnDiskHealth_Click">
                     <MenuItem.Icon>
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE95E;" Foreground="{StaticResource Accent}"
@@ -255,6 +281,14 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE95E;" FontSize="22" Width="Auto" HorizontalAlignment="Center" />
                         <TextBlock Text="Disk health" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="BtnCloneWindows" Style="{StaticResource ToolbarButton}" Click="MenuCloneWindows_Click"
+                        ToolTipService.ShowOnDisabled="True"
+                        ToolTip="Copy an installed Windows to another disk, with its boot files. Only available when FreePartition runs from WinPE.">
+                    <StackPanel>
+                        <ContentControl Content="{StaticResource CloneWindowsIcon}" Width="22" Height="22" HorizontalAlignment="Center" />
+                        <TextBlock Text="Clone Windows" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0" />
                     </StackPanel>
                 </Button>
             </StackPanel>
