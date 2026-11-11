@@ -10,6 +10,7 @@ using System.Windows.Media;
 using FreePartition.Core.Cloning;
 using FreePartition.Core.Disks;
 using FreePartition.Core.Operations;
+using FreePartition.Core.Updates;
 using FreePartition.Core.Util;
 
 namespace FreePartition.Wpf;
@@ -50,6 +51,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _operationsCts;
     private IReadOnlyList<DiskInfo> _disks = [];
     private readonly bool _isWinPe;
+    private readonly string _currentVersion;
+    private readonly UpdateSettings _updateSettings = UpdateSettings.Load(UpdateSettings.DefaultPath);
+    private bool _updateCheckRunning;
 
     public MainWindow()
     {
@@ -71,6 +75,8 @@ public partial class MainWindow : Window
         int plus = version.IndexOf('+');
         if (plus > 0) version = version[..plus];
         TxtVersion.Text = $"v{version}";
+        _currentVersion = version;
+        MenuUpdateOnStartup.IsChecked = _updateSettings.CheckOnStartup;
     }
 
     private int _busyCount;
@@ -86,7 +92,73 @@ public partial class MainWindow : Window
     {
         RefreshPending();
         RefreshAvailableOperations();
+
+        // WinPE runs from a RAM disk (nothing would survive a restart) and usually has no network; debug builds are the dev's own.
+#if !DEBUG
+        if (_updateSettings.CheckOnStartup && !_isWinPe) _ = CheckForUpdateAsync(manual: false);
+#endif
         await LoadDisksAsync();
+    }
+
+    // ------------------------------------------------------------------ Updates
+
+    /// <summary>Why an update cannot start now: it restarts the app, so running or queued operations would be lost.</summary>
+    private string? UpdateBlockReason() =>
+        _operationsRunning ? "Disk operations are running. Wait until they finish, then update."
+        : _queue.Pending.Count > 0 ? "There are pending operations and they would be lost when FreePartition restarts. Apply or undo them, then update."
+        : null;
+
+    /// <summary>Asks GitHub for the latest release. The startup check is silent unless there is something to offer.</summary>
+    private async Task CheckForUpdateAsync(bool manual)
+    {
+        if (_updateCheckRunning) return;
+        if (_isWinPe)
+        {
+            if (manual) MessageBox.Show(this, "Updates are not available in WinPE.", "Check for updates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _updateCheckRunning = true;
+        SetBusy(true);
+        try
+        {
+            using var http = UpdateService.CreateHttpClient();
+            http.Timeout = TimeSpan.FromSeconds(15);
+            bool dependent = UpdateService.IsFrameworkDependent(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
+            var release = await new UpdateService(http).CheckAsync(_currentVersion, dependent);
+
+            if (release is null)
+            {
+                if (manual) MessageBox.Show(this, $"You have the latest version (v{_currentVersion}).", "Check for updates",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // The startup check respects "Skip this version" and does not interrupt running operations.
+            if (!manual && (release.Tag == _updateSettings.SkippedVersion || _operationsRunning)) return;
+
+            new UpdateWindow(release, _currentVersion, _updateSettings, UpdateBlockReason) { Owner = this }.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            if (manual) MessageBox.Show(this, $"Could not check for updates.\n\n{ex.Message}", "Check for updates",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SetBusy(false);
+            _updateCheckRunning = false;
+        }
+    }
+
+    private async void MenuCheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdateAsync(manual: true);
+
+    private void MenuUpdateOnStartup_Click(object sender, RoutedEventArgs e)
+    {
+        _updateSettings.CheckOnStartup = MenuUpdateOnStartup.IsChecked;
+        if (!_updateSettings.Save(UpdateSettings.DefaultPath))
+            MessageBox.Show(this, "Could not save the setting. It applies only until you close FreePartition.", "Updates",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     // ------------------------------------------------------------------ Disks
