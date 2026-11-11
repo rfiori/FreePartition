@@ -295,6 +295,47 @@ public class WindowsCloneTests
     }
 
     [Fact]
+    public async Task Run_WhenReagentcIsMissing_CountsTheRecoveryAsCopiedAndTellsHowToEnableIt()
+    {
+        // The real case: WinPE has no reagentc.exe, but the files were copied.
+        var (result, _, _, steps) = await Run(GptDisk(), EmptyDisk(1, 500 * GiB),
+            script => script.Contains("robocopy.exe") ? new CommandResult(0, "FP-REAGENTC=missing", "") : new CommandResult(0, "", ""));
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal(CloneStepState.Done, steps[4]);
+        string warning = Assert.Single(result.Warnings);
+        Assert.Contains("was copied", warning);
+        Assert.Contains("reagentc /enable", warning);
+        Assert.DoesNotContain("Without the recovery partition", result.Message);
+    }
+
+    [Fact]
+    public async Task Run_WhenReagentcRegistersTheRecovery_HasNoWarning()
+    {
+        var (result, _, _, steps) = await Run(GptDisk(), EmptyDisk(1, 500 * GiB),
+            script => script.Contains("robocopy.exe") ? new CommandResult(0, "REAGENTC.EXE: Operation Successful.\nFP-REAGENTC=ok", "") : new CommandResult(0, "", ""));
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal(CloneStepState.Done, steps[4]);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void RegisterRecoveryScript_FallsBackToTheReagentcOfTheCopiedWindowsAndNeverThrows()
+    {
+        string script = WindowsCloneWorkflow.RegisterRecoveryScript('W', 'F');
+
+        Assert.Contains(@"$wim = 'W:\Recovery\WindowsRE'", script);
+        Assert.Contains("Get-Command reagentc.exe -ErrorAction SilentlyContinue", script);
+        Assert.Contains(@"'F:\Windows\System32\reagentc.exe'", script);
+        Assert.Contains(@"/setreimage /path $wim /target 'F:\Windows'", script);
+        Assert.Contains("FP-REAGENTC=missing", script);
+        Assert.Contains("catch {", script);
+        Assert.DoesNotContain("throw", script);
+        Assert.EndsWith("exit 0", script);
+    }
+
+    [Fact]
     public async Task Run_WhenBcdbootFails_ReportsTheFailureOnThatStep()
     {
         var (result, _, _, steps) = await Run(GptDisk(), EmptyDisk(1, 500 * GiB),

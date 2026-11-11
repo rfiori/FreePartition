@@ -212,8 +212,7 @@
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem x:Name="MenuCloneWindows" Header="Clone Windows to another disk…" Click="MenuCloneWindows_Click"
-                          ToolTipService.ShowOnDisabled="True"
-                          ToolTip="Copies an installed Windows to another disk, with its boot files. Only available when FreePartition runs from WinPE.">
+                          ToolTip="Copies an installed Windows to another disk, with its boot files. Runs from the FreePartition WinPE USB drive.">
                     <MenuItem.Icon>
                         <ContentControl Content="{StaticResource CloneWindowsIcon}" Width="16" Height="16" />
                     </MenuItem.Icon>
@@ -284,8 +283,7 @@
                     </StackPanel>
                 </Button>
                 <Button x:Name="BtnCloneWindows" Style="{StaticResource ToolbarButton}" Click="MenuCloneWindows_Click"
-                        ToolTipService.ShowOnDisabled="True"
-                        ToolTip="Copy an installed Windows to another disk, with its boot files. Only available when FreePartition runs from WinPE.">
+                        ToolTip="Copy an installed Windows to another disk, with its boot files. Runs from the FreePartition WinPE USB drive.">
                     <StackPanel>
                         <ContentControl Content="{StaticResource CloneWindowsIcon}" Width="22" Height="22" HorizontalAlignment="Center" />
                         <TextBlock Text="Clone Windows" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0" />

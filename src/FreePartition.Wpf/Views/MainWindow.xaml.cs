@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<PartitionRow, Border> _boxes = new();
     private CancellationTokenSource? _operationsCts;
     private IReadOnlyList<DiskInfo> _disks = [];
+    private readonly bool _isWinPe;
 
     public MainWindow()
     {
@@ -58,8 +59,8 @@ public partial class MainWindow : Window
         // Windows drive (e.g. 'C'): formatting it or changing its letter is blocked.
         _systemLetter = Path.GetPathRoot(Environment.SystemDirectory) is { Length: > 0 } root ? char.ToUpperInvariant(root[0]) : null;
         _queue = new OperationQueue(_systemLetter, new FileLog(FileLog.DefaultPath));
-        // A running Windows cannot be copied consistently, so this only works from WinPE.
-        MenuCloneWindows.IsEnabled = BtnCloneWindows.IsEnabled = WinPeDetector.IsWinPe();
+        // A running Windows cannot be copied consistently: cloning runs from WinPE, elsewhere it explains how to get there.
+        _isWinPe = WinPeDetector.IsWinPe();
         _queue.Changed += (_, _) => RefreshPending();
         Loaded += (_, _) => DisksGrid.ContextMenu = BuildContextMenu();
 
@@ -1463,6 +1464,11 @@ public partial class MainWindow : Window
     private void MenuCloneWindows_Click(object sender, RoutedEventArgs e)
     {
         const string title = "Clone Windows to another disk";
+        if (!_isWinPe)
+        {
+            new WinPeGuideWindow { Owner = this }.ShowDialog();
+            return;
+        }
         if (_disks.Count == 0) return;
         if (_queue.Pending.Count > 0)
         {

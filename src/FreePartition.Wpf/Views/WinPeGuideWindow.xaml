@@ -1,0 +1,59 @@
+<Window x:Class="FreePartition.Wpf.WinPeGuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Clone Windows to another disk" SizeToContent="Height" Width="560" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Background="White">
+    <StackPanel Margin="18">
+
+        <TextBlock Text="Start the computer from the FreePartition USB drive" FontSize="18" FontWeight="SemiBold"
+                   Foreground="#2F6FA8" TextWrapping="Wrap" />
+        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#333"
+                   Text="A Windows that is running cannot be copied safely: its files change while they are read. Cloning Windows runs from WinPE, a small Windows that starts from a USB drive and opens FreePartition by itself." />
+
+        <Separator Margin="0,14,0,10" />
+
+        <TextBlock Text="1. Download the WinPE image (ISO)" FontWeight="SemiBold" />
+        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap">
+            <Hyperlink x:Name="LinkIso" RequestNavigate="Link_RequestNavigate"><Run x:Name="TxtIsoUrl" /></Hyperlink>
+        </TextBlock>
+
+        <TextBlock Text="2. Write it to a USB drive" FontWeight="SemiBold" Margin="0,12,0,0" />
+        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap" Foreground="#333">
+            <Run Text="Use a USB drive of 4 GB or more: everything on it is erased. With " /><Hyperlink
+                NavigateUri="https://rufus.ie" RequestNavigate="Link_RequestNavigate">Rufus</Hyperlink><Run
+                Text=", select the drive and the ISO, keep the partition scheme MBR (target BIOS or UEFI) and the file system FAT32, then click Start. With " /><Hyperlink
+                NavigateUri="https://www.ventoy.net" RequestNavigate="Link_RequestNavigate">Ventoy</Hyperlink><Run
+                Text=", just copy the ISO to the drive." />
+        </TextBlock>
+
+        <TextBlock Text="3. Prepare the computer" FontWeight="SemiBold" Margin="0,12,0,0" />
+        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap" Foreground="#333"
+                   Text="Connect the destination disk. Shut Windows down completely: turn off Fast Startup, or hold Shift while you click Shut down." />
+
+        <TextBlock Text="4. Start from the USB drive" FontWeight="SemiBold" Margin="0,12,0,0" />
+        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap" Foreground="#333"
+                   Text="Turn the computer on and open the boot menu (usually F12, F11, F8 or Esc) and choose the USB drive. A Windows that uses UEFI needs the USB drive started in UEFI mode, one that uses BIOS (legacy) needs BIOS mode." />
+
+        <TextBlock Text="5. Clone" FontWeight="SemiBold" Margin="0,12,0,0" />
+        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap" Foreground="#333"
+                   Text="FreePartition opens by itself. Click Clone Windows (or Tools > Clone Windows to another disk...) and follow the steps." />
+
+        <Border Background="#FFF6E5" BorderBrush="#E8C77A" BorderThickness="1" CornerRadius="3"
+                Padding="10,8" Margin="0,14,0,0">
+            <TextBlock TextWrapping="Wrap" Foreground="#5B4612"
+                       Text="The destination disk is erased. Keep a backup of anything important." />
+        </Border>
+
+        <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#333">
+            <Run Text="Detailed guide, with the problems you may meet and how to solve them: " /><Hyperlink
+                NavigateUri="https://github.com/rfiori/FreePartition/blob/main/docs/clone-windows/GUIDE.md"
+                RequestNavigate="Link_RequestNavigate">step-by-step guide</Hyperlink>
+        </TextBlock>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Download ISO" Padding="12,4" Click="Download_Click" />
+            <Button Content="Copy link" Padding="12,4" Margin="8,0,0,0" Click="CopyLink_Click" />
+            <Button Content="Close" IsDefault="True" IsCancel="True" Padding="22,4" Margin="8,0,0,0" />
+        </StackPanel>
+    </StackPanel>
+</Window>

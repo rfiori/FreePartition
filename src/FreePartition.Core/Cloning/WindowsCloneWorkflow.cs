@@ -141,11 +141,16 @@ public sealed partial class WindowsCloneWorkflow(
             {
                 Step(StepRecovery, CloneStepState.Running);
                 log?.Report("Copying the recovery partition...");
-                string? recoveryError = await CopyRecoveryAsync(source, sourceRecovery, destination, plan, recoveryOffset,
-                    recoveryLetter, sourceRecoveryLetter, windowsLetter, log, ct);
+                var (recoveryError, recoveryWarning) = await CopyRecoveryAsync(source, sourceRecovery, destination, plan,
+                    recoveryOffset, recoveryLetter, sourceRecoveryLetter, windowsLetter, log, ct);
                 if (recoveryError is null)
                 {
                     recoveryCopied = true;
+                    if (recoveryWarning is not null)
+                    {
+                        warnings.Add(recoveryWarning);
+                        log?.Report("Warning: " + recoveryWarning);
+                    }
                     Step(StepRecovery, CloneStepState.Done);
                 }
                 else
@@ -224,8 +229,11 @@ public sealed partial class WindowsCloneWorkflow(
 
     // ---------------------------------------------------------------- Recovery
 
-    /// <summary>Returns null when the recovery partition was created and copied; otherwise the reason it was not.</summary>
-    private async Task<string?> CopyRecoveryAsync(
+    /// <summary>
+    /// Error is null when the recovery partition was created and copied (otherwise the reason it was not); Warning says
+    /// when it was copied but the copied Windows could not be pointed to it.
+    /// </summary>
+    private async Task<(string? Error, string? Warning)> CopyRecoveryAsync(
         WindowsInstall source, PartitionInfo sourceRecovery, DiskInfo destination, WindowsClonePlan plan, long offset,
         char recoveryLetter, char sourceLetter, char windowsLetter, IProgress<string>? log, CancellationToken ct)
     {
@@ -245,7 +253,7 @@ public sealed partial class WindowsCloneWorkflow(
         {
             lines.Add("set id=27");
         }
-        if (await RunScript(DiskPartScript([.. lines]), log, ct) is { } createError) return createError;
+        if (await RunScript(DiskPartScript([.. lines]), log, ct) is { } createError) return (createError, null);
 
         // The source recovery partition usually has no letter: give it one while it is copied, then take it away again.
         var access = SourceAccess(source.Disk.Index, sourceRecovery, sourceLetter);
@@ -256,13 +264,38 @@ public sealed partial class WindowsCloneWorkflow(
             "$out = & robocopy.exe $src $dst /E /COPYALL /DCOPY:DAT /XD 'System Volume Information' /R:1 /W:1 /NFL /NDL /NJH /NP 2>&1 | Out-String; " +
             "$rc = $LASTEXITCODE; Write-Output $out; if ($rc -ge 8) { throw \"robocopy failed ($rc).\" } " +
             "} finally { " + access.Remove + " }; " +
-            // Point the copy's Windows Recovery Environment settings to the new recovery partition (offline, best effort).
-            $"$wim = '{recoveryLetter}:\\Recovery\\WindowsRE'; " +
-            "if (Test-Path -LiteralPath (Join-Path $wim 'Winre.wim')) { " +
-            $"$o = & reagentc.exe /setreimage /path $wim /target '{windowsLetter}:\\Windows' 2>&1 | Out-String; Write-Output $o }}; exit 0";
+            RegisterRecoveryScript(recoveryLetter, windowsLetter);
         var result = await executor.ExecuteAsync(script, ct);
-        return result.Success ? null : Describe(result);
+        if (!result.Success) return (Describe(result), null);
+        if (!string.IsNullOrWhiteSpace(result.Output)) log?.Report(result.Output.Trim());
+
+        // The files are on the new partition either way; only the registration in the copied Windows may be missing.
+        var registration = RegistrationRegex().Match(result.Output);
+        if (!registration.Success || registration.Groups[1].Value == "ok") return (null, null);
+        string why = registration.Groups[1].Value == "missing"
+            ? "reagentc.exe is not available in this WinPE"
+            : "reagentc.exe could not register it";
+        return (null, $"The recovery partition was copied, but it could not be registered in the copied Windows ({why}). " +
+                      "After starting from the new disk, open a Command Prompt as administrator and run: reagentc /enable");
     }
+
+    [GeneratedRegex(@"FP-REAGENTC=(ok|missing|failed)")]
+    private static partial Regex RegistrationRegex();
+
+    /// <summary>
+    /// Points the copied Windows' recovery settings to the new recovery partition (offline). WinPE usually has no
+    /// reagentc.exe, so the one of the copied Windows is used instead. Never fails: it prints <c>FP-REAGENTC=ok</c>,
+    /// <c>missing</c> or <c>failed</c> (nothing when the partition has no Winre.wim).
+    /// </summary>
+    public static string RegisterRecoveryScript(char recovery, char windows) =>
+        $"$wim = '{recovery}:\\Recovery\\WindowsRE'; " +
+        "if (Test-Path -LiteralPath (Join-Path $wim 'Winre.wim')) { " +
+        "$re = (Get-Command reagentc.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source; " +
+        $"if (-not $re) {{ $c = '{windows}:\\Windows\\System32\\reagentc.exe'; if (Test-Path -LiteralPath $c) {{ $re = $c }} }}; " +
+        "if (-not $re) { Write-Output 'FP-REAGENTC=missing' } else { " +
+        $"try {{ $o = & $re /setreimage /path $wim /target '{windows}:\\Windows' 2>&1 | Out-String; Write-Output $o; " +
+        "if ($LASTEXITCODE -eq 0) { Write-Output 'FP-REAGENTC=ok' } else { Write-Output 'FP-REAGENTC=failed' } } " +
+        "catch { Write-Output $_.Exception.Message; Write-Output 'FP-REAGENTC=failed' } } }; exit 0";
 
     // ---------------------------------------------------------------- Scripts
 
