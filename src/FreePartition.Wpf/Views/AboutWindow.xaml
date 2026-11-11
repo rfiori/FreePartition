@@ -65,7 +65,7 @@
         <Border Background="#FFF6E5" BorderBrush="#E8C77A" BorderThickness="1" CornerRadius="3"
                 Padding="10,8" Margin="0,12,0,0">
             <TextBlock TextWrapping="Wrap" Foreground="#5B4612"
-                       Text="Alpha software that touches disks. Try it on a test VHD or a virtual machine first, and keep backups." />
+                       Text="This software changes disks. Keep backups of anything important, and try it on a test VHD or a virtual machine first if you are unsure." />
         </Border>
 
         <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" FontSize="11" Foreground="#777"

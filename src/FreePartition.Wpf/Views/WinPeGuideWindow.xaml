@@ -13,7 +13,9 @@
         <Separator Margin="0,14,0,10" />
 
         <TextBlock Text="1. Download the WinPE image (ISO)" FontWeight="SemiBold" />
-        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap">
+        <TextBlock Margin="16,4,0,0" TextWrapping="Wrap" Foreground="#333"
+                   Text="On the releases page of the latest version, download the file FreePartition-WinPE.iso:" />
+        <TextBlock Margin="16,2,0,0" TextWrapping="Wrap">
             <Hyperlink x:Name="LinkIso" RequestNavigate="Link_RequestNavigate"><Run x:Name="TxtIsoUrl" /></Hyperlink>
         </TextBlock>
 
@@ -51,7 +53,7 @@
         </TextBlock>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="Download ISO" Padding="12,4" Click="Download_Click" />
+            <Button Content="Open download page" Padding="12,4" Click="Download_Click" />
             <Button Content="Copy link" Padding="12,4" Margin="8,0,0,0" Click="CopyLink_Click" />
             <Button Content="Close" IsDefault="True" IsCancel="True" Padding="22,4" Margin="8,0,0,0" />
         </StackPanel>

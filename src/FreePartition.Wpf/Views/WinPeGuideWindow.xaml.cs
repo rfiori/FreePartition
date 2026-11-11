@@ -9,7 +9,8 @@ namespace FreePartition.Wpf;
 /// </summary>
 public partial class WinPeGuideWindow : Window
 {
-    public const string IsoUrl = "https://ricardo44backup.blob.core.windows.net/freepartition/FreePartition-WinPE.iso";
+    /// <summary>The releases page, where the ISO (FreePartition-WinPE.iso) is attached to each release.</summary>
+    public const string IsoUrl = "https://github.com/rfiori/FreePartition/releases/latest";
 
     public WinPeGuideWindow()
     {

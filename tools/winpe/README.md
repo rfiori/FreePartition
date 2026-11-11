@@ -5,6 +5,12 @@ Booting from it lets you resize/move/format the system disk and recover files wi
 
 > Experimental: WPF and the .NET runtime are not officially supported in WinPE. Test in a VM first.
 
+**Ready-made image:** if you do not want to build it, download
+`FreePartition-WinPE.iso` from the [latest release](https://github.com/rfiori/FreePartition/releases/latest) and write it
+to a USB drive with [Rufus](https://rufus.ie) (partition scheme MBR, target BIOS or UEFI, file system FAT32) or copy it
+to a [Ventoy](https://www.ventoy.net) drive. The **Clone Windows** button of FreePartition, outside WinPE, shows the same
+instructions.
+
 ## What you need
 
 | Item | Where | Notes |
@@ -69,8 +75,10 @@ If `Remove-Item` reports files in use, reboot and repeat. If Windows blocks anot
 ## Clone Windows to another disk
 
 In WinPE the installed Windows is not running, so it can be copied consistently. **Tools > Clone Windows to
-another disk...** or the **Clone Windows** toolbar button (both enabled only in WinPE) open a guided window that
-lists the steps and marks each one *OK*, *Skipped* or *Failed* as it runs:
+another disk...** or the **Clone Windows** toolbar button open a guided window (outside WinPE they show how to get
+the WinPE USB drive instead) that
+lists the steps and marks each one *OK*, *Skipped* or *Failed* as it runs (for a step-by-step guide with
+troubleshooting, see [docs/clone-windows/GUIDE.md](../../docs/clone-windows/GUIDE.md)):
 
 1. Checks the destination disk (different from the source, large enough).
 2. Erases it and initializes it with the same style as the source (GPT for UEFI, MBR for BIOS).
@@ -78,7 +86,9 @@ lists the steps and marks each one *OK*, *Skipped* or *Failed* as it runs:
 4. Copies the Windows partition sector by sector (the same copy as **Clone partition**), then asks WinPE which
    drive letter the copy really got (WinPE assigns one by itself) and uses that letter in the next steps.
 5. Creates the recovery partition and copies its files (best effort: a failure here is a warning). Skipped when the
-   source has no recovery partition.
+   source has no recovery partition. It then points the copied Windows to it with `reagentc /setreimage`; WinPE has no
+   `reagentc.exe`, so the one of the copied Windows is used. If that fails too, the window says so: start from the new
+   disk and run `reagentc /enable` in an administrator Command Prompt.
 6. Writes the boot files with `bcdboot` (deleting `hiberfil.sys` from the copy so Fast Startup cannot resume
    the old session). If `bcdboot` refuses the copy, for example an old Windows from a newer WinPE, the boot files of the
    source are copied instead and its boot store is repointed to the new disk; the window then shows a warning.
@@ -94,9 +104,12 @@ Things to know before using it:
 - A Windows partition needs a drive letter to be listed; use **Show partition** if it has none.
 - To test the result, disconnect (or detach, in a VM) the old disk and start from the new one.
 - The steps and the output of each command are also written to `Log\operations.log`, and shown in the window's log box.
-- Tested so far: a Windows 7 32-bit disk (MBR/BIOS, no recovery partition) cloned to a second disk in a VirtualBox VM
-  running the AMD64 WinPE; the copy booted to the Windows welcome screen. The UEFI/GPT path and a source with a
-  recovery partition have not been run yet.
+- Tested so far:
+  - A Windows 7 32-bit disk (MBR/BIOS, no recovery partition) cloned to a second disk in a VirtualBox VM running the
+    AMD64 WinPE; the copy booted to the Windows welcome screen.
+  - A real PC: Windows (UEFI/GPT, with a recovery partition) moved from a SATA SSD to an NVMe M.2 drive. The copy
+    booted and the recovery partition worked (Shift + Restart) after `reagentc /enable`; that run was before the app
+    used the copied Windows' `reagentc.exe`.
 
 ## Known limits
 
