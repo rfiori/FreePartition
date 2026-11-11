@@ -41,6 +41,7 @@ public partial class LostPartitionsWindow : Window
     public LostPartitionsWindow(IReadOnlyList<DiskInfo> disks, int initialDiskIndex, Action<DiskOperation> queue)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         _queue = queue;
 
         CmbDisks.ItemsSource = disks.Select(d => new DiskChoice(d)).ToList();

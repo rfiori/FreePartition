@@ -1,19 +1,19 @@
-<h1 align="center">FreePartition</h1>
+<h1 align="center"><img src="docs/images/icon.png" alt="FreePartition icon" width="56" height="56" align="absmiddle"> FreePartition</h1>
 
 <p align="center">
-  <b>Free, open-source disk management for Windows.</b><br>
-  Recover deleted files, carve them by signature with a preview, and manage your partitions, all in one app.
+  <b>Free, open-source disk management for Windows. No ads.</b><br>
+  Recover deleted files and manage your partitions, all in one app.
 </p>
 
-<p align="center">
-  <b>File recovery:</b> scan NTFS volumes for deleted files, or carve JPEG, PNG, PDF, DOCX, MP4 and more by
-  signature on FAT, exFAT and damaged NTFS. Preview what you found, browse every photo as a thumbnail
-  gallery, check the ones you want and recover them to another drive, never the one you are scanning.<br>
-  Create, resize, move, merge, split and format partitions with a visual disk map and a
-  review-then-apply queue, so nothing touches your disk until you confirm.<br>
-  Read-only SMART and NVMe health reports.<br>
-  Built with C# / .NET and WPF, inspired by the best disk managers available.
-</p>
+- **File recovery:** scan NTFS volumes for deleted files, or carve JPEG, PNG, PDF, DOCX, MP4 and more by signature on
+  FAT, exFAT and damaged NTFS. Preview what you found, browse every photo as a thumbnail gallery, check the ones you
+  want and recover them to another drive, never the one you are scanning.
+- **Partitions:** create, resize, move, merge, split and format partitions with a visual disk map and a
+  review-then-apply queue, so nothing touches your disk until you confirm.
+- **Disk health:** read-only S.M.A.R.T. and NVMe health reports.
+- **Clone Windows:** from the bootable WinPE build, copy an installed Windows to another disk in one guided window,
+  boot files and recovery partition included.
+-  Built with C# / .NET and WPF.
 
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D6">
@@ -25,50 +25,23 @@
 </p>
 
 ---
-## Requirements
 
-- Windows 10 / 11
-- [.NET SDK 10](https://dotnet.microsoft.com/download)
-- Administrator rights to run the app (raw volume access and partition)
+## Download
 
-## Quick start for devs
+1. Open the [latest release](https://github.com/rfiori/FreePartition/releases/latest) and download one of the zips:
+   - `FreePartition-<version>-win-x64-self-contained.zip`: runs without installing anything (recommended).
+   - `FreePartition-<version>-win-x64.zip`: smaller, needs the [.NET Desktop Runtime 10](https://dotnet.microsoft.com/download).
+2. Extract it and run `FreePartition.exe`. Accept the administrator prompt: raw disk access needs it.
 
-```bash
-git clone https://github.com/rfiori/FreePartition.git
-cd FreePartition
-dotnet build
-dotnet test
-dotnet run --project src/FreePartition.Wpf
-```
-
-The app requests elevation (UAC) on startup. If you run it from Visual Studio, open
-Visual Studio **as administrator**.
-
-<details>
-<summary><b>Using a different .NET version</b></summary>
-
-The default target is `net10.0-windows`, set in a single place. Edit `TargetFramework` in
-[`Directory.Build.props`](Directory.Build.props), for example to `net8.0-windows`.
-
-</details>
-
-<details>
-<summary><b>If your tooling does not support the <code>.slnx</code> solution format</b></summary>
-
-`.slnx` needs Visual Studio 2022 17.13+ or a recent `dotnet`. To generate a classic `.sln`:
-
-```bash
-dotnet new sln --format sln -n FreePartition
-dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.Tests
-```
-
-</details>
----
+Requires Windows 10 / 11 (64-bit). To check a download, see [Releases](#releases). To copy Windows to another disk
+you also need a USB drive: see [Clone Windows to another disk](#clone-windows-to-another-disk).
 
 ## Table of contents
 
+- [Download](#download)
 - [File recovery](#file-recovery)
 - [What it does](#what-it-does)
+- [Clone Windows to another disk](#clone-windows-to-another-disk) (with a [step-by-step guide](docs/clone-windows/GUIDE.md))
 - [Screenshots](#screenshots)
 - [Releases](#releases)
 - [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
@@ -76,6 +49,7 @@ dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.
 - [Safety](#safety)
 - [Roadmap](#roadmap)
 - [Known limitations](#known-limitations)
+- [Build from source](#build-from-source)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -172,8 +146,49 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | --- | --- |
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date, a read-only preview (image, text or hex dump) of the selected file and a **Thumbnails…** gallery of all the images (click, drag or Shift+click to check them). Also carves files by signature. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
+| **Clone Windows to another disk** (Tools menu and toolbar) | Copies an installed Windows to another disk so the new disk boots on its own: initializes the destination, creates the boot partition, copies Windows and the recovery partition and writes the boot files. Runs only from the [WinPE build](tools/winpe/README.md), where the source Windows is not in use; in a normal Windows it shows how to download the WinPE ISO from the [releases page](https://github.com/rfiori/FreePartition/releases/latest) and make the bootable USB drive (see [below](#clone-windows-to-another-disk)). |
 
 Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
+
+## Clone Windows to another disk
+
+> **First time?** Follow the step-by-step guide, written for non-technical users, with the problems you may meet and
+> how to solve them: [English](docs/clone-windows/GUIDE.md) · [Español](docs/clone-windows/GUIDE.es.md) ·
+> [Português (Brasil)](docs/clone-windows/GUIDE.pt-BR.md).
+
+Windows cannot be copied consistently while it is running, so the clone runs only when FreePartition runs from
+the [WinPE build](tools/winpe/README.md) (the app detects it). In a normal Windows the same button opens a window that
+explains how to get there:
+
+1. Download the ready-made WinPE image:
+   **`FreePartition-WinPE.iso`**, attached to the [latest release](https://github.com/rfiori/FreePartition/releases/latest)
+   (or build it yourself with [`build-winpe.ps1`](tools/winpe/README.md)).
+2. Write it to a USB drive of 4 GB or more (it is erased): with [Rufus](https://rufus.ie), partition scheme MBR
+   (target BIOS or UEFI) and file system FAT32; with [Ventoy](https://www.ventoy.net), just copy the ISO to the drive.
+3. Connect the destination disk, shut Windows down completely and start the PC from the USB drive (boot menu, usually
+   F12, F11, F8 or Esc), in UEFI mode for a UEFI Windows or BIOS mode for a BIOS one.
+
+FreePartition opens by itself. Use **Tools → Clone Windows to another disk…** or the **Clone Windows** toolbar button.
+A single window guides you and shows each step with its status (*OK*, *Skipped* or *Failed*):
+
+| Step | What it does |
+| --- | --- |
+| **1. Check the disks** | The destination must be a different disk, large enough for the boot partition, Windows and the recovery partition. |
+| **2. Erase and initialize** | Wipes the destination disk and initializes it as GPT (UEFI source) or MBR (BIOS source). |
+| **3. Create the boot partition** | EFI system partition plus MSR on GPT; an active *System Reserved* partition on MBR. |
+| **4. Copy the Windows partition** | Sector by sector, the same copy as **Clone partition**. |
+| **5. Copy the recovery partition** | Creates it, copies its files and points the copied Windows to it (`reagentc`). Skipped when the source has none; a failure here is only a warning, which tells you to run `reagentc /enable` in the new Windows if needed. |
+| **6. Write the boot files** | `bcdboot`; if it refuses the copy (for example Windows 7 from a recent WinPE), the source's own boot files are copied and its boot store is repointed to the new disk. |
+| **7. Verify the result** | Checks that the boot loader and the boot store exist and that the default entry points to the copy. |
+
+- The **destination disk is erased**; the source is only read. You must tick a confirmation before it starts.
+- The copy has the exact size of the Windows partition: for a smaller destination, shrink the Windows partition first.
+- Windows must have been shut down completely (Fast Startup leaves a half-saved session; `hiberfil.sys` is also removed
+  from the copy).
+- A GPT source needs the computer in UEFI mode, an MBR source in BIOS (legacy) mode.
+- To test the result, disconnect the old disk and start from the new one.
+
+Details and requirements: [tools/winpe/README.md](tools/winpe/README.md).
 
 ## Screenshots
 
@@ -301,7 +316,7 @@ The guarantees the code is built around:
 - **Move partition cannot be canceled once the copy starts, and a power failure corrupts that partition** — the app says
   so before and when applying. On SSDs, wipes cannot reach the drive's spare cells and the app warns about it.
 - The queue stops at the first failure; the remaining operations stay pending.
-- Every event is logged to `%LocalAppData%\FreePartition\operations.log`.
+- Every event is logged to `Log\operations.log` next to the executable (or `%LocalAppData%\FreePartition\operations.log` if that folder is not writable).
 
 ## Roadmap
 
@@ -313,17 +328,20 @@ The guarantees the code is built around:
 - ✅ Create and delete partition
 - ✅ Initialize disk (MBR/GPT)
 - ✅ Set active partition, hide/show
-- ✅ Disk health (S.M.A.R.T.)
+- ✅ Explore partition and Properties (usage breakdown; partition, volume and disk details)
+- ✅ Disk health (S.M.A.R.T. for ATA disks, health log for NVMe)
 
 **Intermediate**
 - ✅ Pending-operations queue (Apply/Undo)
 - ✅ Operations log
 - ✅ Merge and split partitions
-- ✅ Convert FAT32 ↔ NTFS without data loss (not yet run on a real disk; test on a VHD first)
+- ✅ Convert FAT32 ↔ NTFS without data loss
 - ✅ Check for errors (`chkdsk`; scan or repair)
 - ✅ Detect partitions not aligned to 4 KB (warning on the disk map and in Properties)
-- ✅ Align a partition to 1 MB (moves it to the nearest boundary; same risk as a move, not yet run on a VHD)
-- ✅ Wipe a partition, a whole disk or a drive's free space (zeros, verified zeros or random data; not yet run on a VHD)
+- ✅ Align a partition to 1 MB (moves it to the nearest boundary; same risk as a move)
+- ✅ Wipe a partition, a whole disk or a drive's free space (zeros, verified zeros or random data)
+- ✅ Verify wipe (reads a whole volume and reports any data or file system signature left)
+- ✅ Cluster map (a volume drawn as a grid of zero, data and unreadable areas, with a hex dump per square)
 
 **Data recovery**
 - ✅ Find deleted files (MFT scan, NTFS)
@@ -332,15 +350,22 @@ The guarantees the code is built around:
 - ✅ Filter by name
 - ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
 - ✅ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
-- ✅ Thumbnail gallery of recoverable images, with click, drag and Shift+click selection
+- ✅ Thumbnail gallery of recoverable images, paged, with click, drag and Shift+click selection
 - ✅ Application icon of recovered programs (EXE, DLL…) in the gallery and the preview
-- ✅ Recover lost partitions (NTFS, FAT32, exFAT by boot sector; not yet run on a VHD)
+- ✅ Recover lost partitions (NTFS, FAT32, exFAT by boot sector)
 - ✅ Explicit TRIM warning on SSD
 
-**Advanced (high risk — needs heavy VM/VHD testing)**
-- ✅ Move partition (same disk, into free space; verified on a VHD, not yet on a physical disk)
-- ✅ Clone partition (same or another disk, into unallocated space; not yet run on a VHD)
-- ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from; not yet run on a VHD)
+**Advanced (high risk: back up first)**
+- ✅ Move partition (same disk, into free space)
+- ✅ Clone partition (same or another disk, into unallocated space)
+- ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from)
+- ✅ Clone Windows to another disk from WinPE, with boot files and recovery partition (verified with a Windows 7 32-bit MBR/BIOS disk in a VM and with a real UEFI/GPT Windows moved from a SATA SSD to an NVMe drive; both booted from the copy)
+- ✅ Bootable WinPE image (ISO or USB drive) that opens FreePartition, to edit the system disk offline; ready-made
+  ISO attached to each [release](https://github.com/rfiori/FreePartition/releases/latest) (experimental)
+- ✅ Step-by-step guide for moving Windows, with troubleshooting, in English, Spanish and Portuguese
+
+**Planned**
+- ⬜ SSD firmware Secure Erase
 
 ## Known limitations
 
@@ -359,13 +384,51 @@ The guarantees the code is built around:
   `\FreePartition_Convert_<drive>` on the staging drive.
 - **Clone partition**: NTFS, FAT32 and exFAT only, to disks with the same sector size, into unallocated space at least as
   large as the partition (resize it afterwards). The copy keeps the volume serial number; on MBR it needs a free primary slot.
+- **Clone Windows to another disk**: WinPE only, and the destination disk is erased entirely (even when much larger than
+  the source). The Windows partition keeps its size, so a smaller destination needs the source shrunk first. Tested
+  with a Windows 7 MBR/BIOS disk in VirtualBox and one real UEFI/GPT PC (SATA SSD to NVMe). The recovery partition may
+  need `reagentc /enable` in the new Windows.
 - **Convert MBR / GPT**: not the disk Windows boots from (use `mbr2gpt.exe`). MBR → GPT needs 34 sectors free at the start
   and 33 at the end and refuses dynamic disks; GPT → MBR needs at most four partitions, none past 2 TB. Logical partitions
   become ordinary ones, and drive letters may change (the app tries to restore them).
-- Carving, lost-partition scan, Clone, Convert and the wipes have not been run on a real disk yet: test them on a VHD first.
 - The thumbnail gallery reads files from the drive one at a time (in order, which is what a spinning disk handles best) and
   decodes them on several cores. It is not virtualized, so a list of thousands of images still takes a while to fill in.
 - The partition "Type" column only shows Primary / EFI / Other, and the UI is code-behind (no MVVM yet).
+
+## Build from source
+
+Requires the [.NET SDK 10](https://dotnet.microsoft.com/download).
+
+```bash
+git clone https://github.com/rfiori/FreePartition.git
+cd FreePartition
+dotnet build
+dotnet test
+dotnet run --project src/FreePartition.Wpf
+```
+
+The app requests elevation (UAC) on startup. If you run it from Visual Studio, open
+Visual Studio **as administrator**.
+
+<details>
+<summary><b>Using a different .NET version</b></summary>
+
+The default target is `net10.0-windows`, set in a single place. Edit `TargetFramework` in
+[`Directory.Build.props`](Directory.Build.props), for example to `net8.0-windows`.
+
+</details>
+
+<details>
+<summary><b>If your tooling does not support the <code>.slnx</code> solution format</b></summary>
+
+`.slnx` needs Visual Studio 2022 17.13+ or a recent `dotnet`. To generate a classic `.sln`:
+
+```bash
+dotnet new sln --format sln -n FreePartition
+dotnet sln add src/FreePartition.Core src/FreePartition.Wpf tests/FreePartition.Tests
+```
+
+</details>
 
 ## Contributing
 

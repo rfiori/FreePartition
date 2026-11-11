@@ -36,6 +36,7 @@ public partial class ThumbnailWindow : Window
     public ThumbnailWindow(ScanResult result, IEnumerable<DeletedFile> images, HashSet<long> checkedFiles, Action onCheckedChanged)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
 
         _result = result;
         _checked = checkedFiles;

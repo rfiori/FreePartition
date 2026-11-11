@@ -18,6 +18,7 @@ public partial class MoveDialog : Window
     public MoveDialog(char drive, ulong size, ulong used, long regionStart, long regionEnd, long current)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         _current = current;
 
         TxtDescription.Text = $"Drive {drive}: ({ByteFormatter.Format(size)}) — close every program using it first; " +

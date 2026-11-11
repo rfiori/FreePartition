@@ -20,6 +20,7 @@ public partial class RecoveryWindow : Window
     public RecoveryWindow(char? initialDrive = null)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         CmbCategory.ItemsSource = Enum.GetValues<FileCategory>();
         CmbCategory.SelectedIndex = 0;
         CmbMinUnit.ItemsSource = CmbMaxUnit.ItemsSource = SizeUnits.Select(u => u.Name).ToList();

@@ -172,6 +172,15 @@ public sealed class DeletedFileScanner
         }
         if (bitmap is null) return (RecoveryChance.Unavailable, 0);
 
+        // A deleted record can keep stale or garbage runs. One that points outside the volume (or claims an absurd
+        // length) cannot be real, and walking it cluster by cluster would spin for ages: treat it as unavailable.
+        foreach (var run in record.Runs)
+        {
+            if (run.IsSparse) continue;
+            if (run.Lcn < 0 || run.Clusters <= 0 || run.Clusters > totalClusters || run.Lcn + run.Clusters > totalClusters)
+                return (RecoveryChance.Unavailable, 0);
+        }
+
         long total = 0, free = 0;
         foreach (var run in record.Runs)
         {

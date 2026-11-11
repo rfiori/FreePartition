@@ -36,7 +36,7 @@ Esta información permanece en su equipo y nunca se envía a ningún lugar.
 La aplicación escribe un único archivo local, el registro de operaciones:
 
 ```
-%LocalAppData%\FreePartition\operations.log
+Log\operations.log   (junto a FreePartition.exe; %LocalAppData%\FreePartition si no es escribible)
 ```
 
 Registra las acciones puestas en cola y aplicadas en la aplicación (por ejemplo, un formateo

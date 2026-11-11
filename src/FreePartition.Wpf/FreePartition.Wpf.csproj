@@ -28,6 +28,7 @@ Manage partitions, check disk health and recover deleted NTFS files, all in one 
 
   <ItemGroup>
     <Resource Include="Assets/app.ico" />
+    <Resource Include="Assets/app-256.png" />
     <ProjectReference Include="..\FreePartition.Core\FreePartition.Core.csproj" />
   </ItemGroup>
 

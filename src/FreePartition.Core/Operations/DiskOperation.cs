@@ -261,8 +261,11 @@ public sealed record CreatePartition(
             // on a 1 MiB boundary, and never go past the end of the stretch.
             string size = SizeBytes is { } bytes ? $"([math]::Min({bytes}, $max))" : "$max";
             create = $"$o = {gapOffset}; $e = {gapOffset + gapSize}; " +
-                     $"foreach ($q in Get-Partition -DiskNumber {DiskNumber}) {{ if ($q.Offset -ge $o -and $q.Offset -lt $e) {{ $o = [math]::Max($o, $q.Offset + $q.Size) }} }}; " +
-                     $"$off = [math]::Ceiling($o / 1MB) * 1MB; $max = [math]::Floor(($e - $off) / 1MB) * 1MB; " +
+                     // A disk with no partition yet (just initialized) makes Get-Partition fail with "not found": ignore it.
+                     $"foreach ($q in @(Get-Partition -DiskNumber {DiskNumber} -ErrorAction SilentlyContinue)) {{ if ($q.Offset -ge $o -and $q.Offset -lt $e) {{ $o = [math]::Max($o, $q.Offset + $q.Size) }} }}; " +
+                     // Never start in the first MiB (partition table area) nor end in the last one (GPT backup header).
+                     $"$d = Get-Disk -Number {DiskNumber}; if ($e -gt $d.Size - 1MB) {{ $e = $d.Size - 1MB }}; " +
+                     $"$off = [math]::Max([long]1MB, [long]([math]::Ceiling($o / 1MB) * 1MB)); $max = [math]::Floor(($e - $off) / 1MB) * 1MB; " +
                      $"if ($max -lt 1MB) {{ throw 'The selected unallocated space has no room left.' }}; " +
                      $"$n = New-Partition -DiskNumber {DiskNumber} -Offset $off -Size {size}; ";
         }

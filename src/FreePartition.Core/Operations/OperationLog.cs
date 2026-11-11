@@ -18,9 +18,30 @@ public sealed class FileLog : IOperationLog
 
     public FileLog(string path) => _path = path;
 
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "FreePartition", "operations.log");
+    /// <summary>
+    /// <c>Log\operations.log</c> next to the executable (handy on WinPE/USB, where nothing else persists).
+    /// Falls back to %LocalAppData% when that folder is not writable (for example under Program Files).
+    /// </summary>
+    public static string DefaultPath { get; } = ResolveDefaultPath();
+
+    private static string ResolveDefaultPath()
+    {
+        string dir = Path.Combine(AppContext.BaseDirectory, "Log");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            string probe = Path.Combine(dir, ".write-test");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return Path.Combine(dir, "operations.log");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FreePartition", "operations.log");
+        }
+    }
 
     public void Log(string message)
     {

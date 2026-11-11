@@ -25,6 +25,7 @@ public partial class ClusterMapWindow : Window
     public ClusterMapWindow(PartitionRow row)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         _row = row;
         TxtTitle.Text = row.Letter is { } l ? $"{l}:" + (string.IsNullOrEmpty(row.Label) ? "" : $"  {row.Label}") : row.Name;
         TxtSubtitle.Text = $"{row.Disk}  ·  {ByteFormatter.Format(row.Size)}";

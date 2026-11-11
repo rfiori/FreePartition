@@ -36,7 +36,7 @@ Essas informações permanecem no seu computador e nunca são enviadas para luga
 O aplicativo grava um único arquivo local, o log de operações:
 
 ```
-%LocalAppData%\FreePartition\operations.log
+Log\operations.log   (ao lado do FreePartition.exe; %LocalAppData%\FreePartition se não for gravável)
 ```
 
 Ele registra as ações colocadas na fila e aplicadas no aplicativo (por exemplo, uma formatação

@@ -39,6 +39,7 @@ public partial class PropertiesWindow : Window
     public PropertiesWindow(PartitionRow row, DiskInfo? disk, PartitionInfo? partition)
     {
         InitializeComponent();
+        WindowFit.Apply(this);
         _row = row;
         Closed += (_, _) => _cts.Cancel();
 
