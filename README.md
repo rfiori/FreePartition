@@ -226,18 +226,30 @@ format and delete files on without risking real data:
 
 ```powershell
 $vhd = "$env:USERPROFILE\FreePartition-test.vhdx"
-New-VHD -Path $vhd -SizeBytes 2GB -Dynamic |
-  Mount-VHD -Passthru |
-  Initialize-Disk -PartitionStyle GPT -PassThru |
-  New-Partition -UseMaximumSize -AssignDriveLetter |
-  Format-Volume -FileSystem NTFS -NewFileSystemLabel FreePartition_TEST -Confirm:$false
+@"
+create vdisk file="$vhd" maximum=2048 type=expandable
+select vdisk file="$vhd"
+attach vdisk
+convert gpt
+create partition primary
+format fs=ntfs label=FreePartition_TEST quick
+assign
+"@ | diskpart
 ```
 
 Copy some files to the new drive, delete them, then scan that volume in FreePartition.
-When you are done: `Dismount-VHD -Path $vhd` and delete the file.
+When you are done, detach the disk and delete the file:
 
-> `New-VHD` comes from the Hyper-V PowerShell module. Without it, create the VHD from
-> **Disk Management → Action → Create VHD**.
+```powershell
+@"
+select vdisk file="$vhd"
+detach vdisk
+"@ | diskpart
+Remove-Item $vhd
+```
+
+> This uses `diskpart`, which ships with Windows, so nothing extra needs to be installed.
+> You can also create the VHD from **Disk Management → Action → Create VHD**.
 
 ## How recovery works
 
