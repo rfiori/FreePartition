@@ -2,7 +2,7 @@
 
 **English** · [Español](PRIVACY.es.md) · [Português (Brasil)](PRIVACY.pt-BR.md)
 
-**FreePartition** — last updated: October 29, 2026
+**FreePartition** — last updated: November 11, 2026
 
 FreePartition is a free, open-source disk partition manager for Windows. This policy explains
 what the app does, and does not do, with your information.
@@ -10,7 +10,8 @@ what the app does, and does not do, with your information.
 ## Summary
 
 FreePartition does not collect, transmit or sell any personal data. It works entirely on your
-computer and has no network features of its own.
+computer. Its only network feature is an optional check for a new version on GitHub (see
+[Network access](#network-access)).
 
 ## Information we collect
 
@@ -45,9 +46,21 @@ Files you choose to recover are copied only to the destination folder you select
 
 ## Network access
 
-FreePartition makes no network connections. The only external action is opening a link or folder
-(such as the About window links or the log location) with your default Windows handler when
-you click it. Those sites are governed by their own privacy policies.
+The only network connection FreePartition makes is the **update check**. When the app starts (and
+when you choose **Help > Check for updates**), it asks `api.github.com` for the latest release of
+the project. The request carries no personal data, only what any web request carries: your IP
+address and the app name `FreePartition-Updater`. GitHub may log it under its own
+[privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
+
+- You can turn the startup check off in **Help > Check for updates on startup**. The choice is
+  saved in `settings.json` next to `FreePartition.exe` (or in `%LocalAppData%\FreePartition`).
+- Nothing is downloaded or installed until you click **Update now**. The download comes from the
+  project's GitHub releases and is checked against its SHA-256 before it is installed.
+- The check is not made in WinPE.
+
+The other external action is opening a link or folder (such as the About window links or the log
+location) with your default Windows handler when you click it. Those sites are governed by their
+own privacy policies.
 
 ## Administrator rights
 

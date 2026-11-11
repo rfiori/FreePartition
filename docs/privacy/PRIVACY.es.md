@@ -2,7 +2,7 @@
 
 [English](PRIVACY.md) · **Español** · [Português (Brasil)](PRIVACY.pt-BR.md)
 
-**FreePartition** — última actualización: 29 de octubre de 2026
+**FreePartition** — última actualización: 11 de noviembre de 2026
 
 FreePartition es un administrador de particiones de disco gratuito y de código abierto para
 Windows. Esta política explica qué hace y qué no hace la aplicación con su información.
@@ -10,7 +10,8 @@ Windows. Esta política explica qué hace y qué no hace la aplicación con su i
 ## Resumen
 
 FreePartition no recopila, transmite ni vende datos personales. Funciona íntegramente en su
-equipo y no tiene funciones de red propias.
+equipo. Su única función de red es una comprobación opcional de nueva versión en GitHub
+(véase [Acceso a la red](#acceso-a-la-red)).
 
 ## Información que recopilamos
 
@@ -49,10 +50,23 @@ en otra unidad.
 
 ## Acceso a la red
 
-FreePartition no realiza conexiones de red. La única acción externa es abrir un enlace o una
-carpeta (como los enlaces de la ventana Acerca de o la ubicación del registro) con el programa
-predeterminado de Windows cuando usted hace clic. Esos sitios se rigen por sus propias
-políticas de privacidad.
+La única conexión de red de FreePartition es la **comprobación de actualizaciones**. Al iniciar
+(y cuando usted elige **Help > Check for updates**), la aplicación consulta `api.github.com` para
+saber cuál es la versión más reciente del proyecto. La solicitud no lleva datos personales, solo
+lo que lleva cualquier solicitud web: su dirección IP y el nombre de la aplicación
+`FreePartition-Updater`. GitHub puede registrarla según su
+[declaración de privacidad](https://docs.github.com/es/site-policy/privacy-policies/github-general-privacy-statement).
+
+- Puede desactivar la comprobación al iniciar en **Help > Check for updates on startup**. La
+  elección se guarda en `settings.json`, junto a `FreePartition.exe` (o en
+  `%LocalAppData%\FreePartition`).
+- No se descarga ni se instala nada hasta que usted hace clic en **Update now**. La descarga
+  proviene de las releases del proyecto en GitHub y se verifica su SHA-256 antes de instalarla.
+- La comprobación no se realiza en WinPE.
+
+La otra acción externa es abrir un enlace o una carpeta (como los enlaces de la ventana Acerca
+de o la ubicación del registro) con el programa predeterminado de Windows cuando usted hace clic.
+Esos sitios se rigen por sus propias políticas de privacidad.
 
 ## Derechos de administrador
 
