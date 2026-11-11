@@ -33,8 +33,13 @@
    - `FreePartition-<version>-win-x64.zip`: smaller, needs the [.NET Desktop Runtime 10](https://dotnet.microsoft.com/download).
 2. Extract it and run `FreePartition.exe`. Accept the administrator prompt: raw disk access needs it.
 
-Requires Windows 10 / 11 (64-bit). To check a download, see [Releases](#releases). To copy Windows to another disk
-you also need a USB drive: see [Clone Windows to another disk](#clone-windows-to-another-disk).
+Requires Windows 10 / 11 (64-bit). To copy Windows to another disk you also need a USB drive: see
+[Clone Windows to another disk](#clone-windows-to-another-disk).
+
+- **SmartScreen:** the builds are not code-signed yet, so Windows may warn on the first run. Click **More info** and
+  then **Run anyway**.
+- **Check your download** (optional): run `Get-FileHash <file>.zip -Algorithm SHA256` in PowerShell and compare the
+  result with `SHA256SUMS.txt`, attached to the same release.
 
 ## Table of contents
 
@@ -43,7 +48,6 @@ you also need a USB drive: see [Clone Windows to another disk](#clone-windows-to
 - [What it does](#what-it-does)
 - [Clone Windows to another disk](#clone-windows-to-another-disk) (with a [step-by-step guide](docs/clone-windows/GUIDE.md))
 - [Screenshots](#screenshots)
-- [Releases](#releases)
 - [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
 - [How recovery works](#how-recovery-works)
 - [Safety](#safety)
@@ -206,18 +210,6 @@ Details and requirements: [tools/winpe/README.md](tools/winpe/README.md).
     <td><img src="docs/screenshots/disk_health.webp" alt="FreePartition Disk Health" width="100%"></td>
   </tr>
 </table>
-
-## Releases
-
-Pushing a tag such as `v0.0.5` runs [the release workflow](.github/workflows/release.yml): it runs
-the tests (a failure blocks the release), publishes two builds and attaches them to a GitHub
-release with a `SHA256SUMS.txt` file.
-
-- `FreePartition-<version>-win-x64.zip` — small, needs the .NET Desktop Runtime installed.
-- `FreePartition-<version>-win-x64-self-contained.zip` — larger, runs without installing .NET.
-
-Verify a download with `Get-FileHash <file>.zip -Algorithm SHA256` and compare it to `SHA256SUMS.txt`.
-The builds are not code-signed yet, so Windows SmartScreen may warn on first run.
 
 ## How to try it safely (test VHD)
 
@@ -441,6 +433,7 @@ Issues and pull requests are welcome.
 - Any new binary-format parser needs unit tests with hand-built records, including invalid cases
   (see `MftParserTests` for the pattern).
 - Never test destructive operations on a real disk — use a VHD or a VM.
+- Publishing a release: see [docs/RELEASING.md](docs/RELEASING.md).
 
 ## License
 
