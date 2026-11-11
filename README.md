@@ -13,8 +13,7 @@
 - **Disk health:** read-only S.M.A.R.T. and NVMe health reports.
 - **Clone Windows:** from the bootable WinPE build, copy an installed Windows to another disk in one guided window,
   boot files and recovery partition included.
-
-Built with C# / .NET and WPF.
+-  Built with C# / .NET and WPF.
 
 <p align="center">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D6">
