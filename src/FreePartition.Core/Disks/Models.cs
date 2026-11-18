@@ -7,7 +7,8 @@ public sealed record LogicalVolumeInfo(
     string? FileSystem,
     ulong Size,
     ulong Free,
-    string? VolumePath = null);   // "\\?\Volume{guid}\", set for a volume without a drive letter (what the raw volume is opened by)
+    string? VolumePath = null,   // "\\?\Volume{guid}\", set for a volume without a drive letter (what the raw volume is opened by)
+    bool Unmounted = false);   // Windows has no volume for it (offline disk, automount off): usage read straight from the disk
 
 public sealed record PartitionInfo(
     int Index,
@@ -32,4 +33,5 @@ public sealed record DiskInfo(
     string PartitionStyle,
     IReadOnlyList<PartitionInfo> Partitions,
     bool IsSsd = false,
-    IReadOnlyList<ReservedRange>? Reserved = null);   // from the Storage stack (Win32_DiskDrive.MediaType cannot tell SSDs from HDDs)
+    IReadOnlyList<ReservedRange>? Reserved = null,   // from the Storage stack (Win32_DiskDrive.MediaType cannot tell SSDs from HDDs)
+    bool IsOffline = false);   // Windows mounts none of its volumes and refuses changes until it is brought online

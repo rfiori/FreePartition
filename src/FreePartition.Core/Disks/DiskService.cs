@@ -15,7 +15,7 @@ public static class DiskService
         var volumesByGuid = MapVolumesByGuid();
         var files = FindSystemFiles();
         var ssdDisks = FindSsdDisks();
-        var styles = FindPartitionStyles();
+        var styles = FindPartitionStyles(out var offlineDisks);
 
         using var diskSearcher = new ManagementObjectSearcher("SELECT * FROM Win32_DiskDrive");
         foreach (var obj in diskSearcher.Get())
@@ -23,7 +23,7 @@ public static class DiskService
             using var disk = (ManagementObject)obj;
 
             int index = Convert.ToInt32(disk["Index"] ?? 0);
-            var partitions = ListPartitions(index, volumesByPartition, volumesByGuid, files, out var reserved);
+            var partitions = ListPartitions(index, offlineDisks.Contains(index), volumesByPartition, volumesByGuid, files, out var reserved);
 
             // The Storage stack knows the real style (an initialized disk can have no partitions);
             // without it, infer from the partitions: Win32_DiskPartition.Type starts with "GPT:" on GPT disks.
@@ -42,7 +42,8 @@ public static class DiskService
                 PartitionStyle: style,
                 Partitions: partitions,
                 IsSsd: ssdDisks.Contains(index),
-                Reserved: reserved));
+                Reserved: reserved,
+                IsOffline: offlineDisks.Contains(index)));
         }
 
         return result.OrderBy(d => d.Index).ToList();
@@ -51,11 +52,12 @@ public static class DiskService
     // Direct queries (DiskIndex / Win32_LogicalDiskToPartition) instead of ASSOCIATORS OF,
     // which fails with "Not found" on some systems because of DeviceID escaping.
     private static List<PartitionInfo> ListPartitions(
-        int diskIndex, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition,
+        int diskIndex, bool diskOffline, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition,
         Dictionary<string, LogicalVolumeInfo> volumesByGuid, SystemFiles files,
         out IReadOnlyList<ReservedRange> reserved)
     {
         var list = new List<PartitionInfo>();
+        using var rawDisk = new LazyRawDisk(diskIndex);
 
         using var searcher = new ManagementObjectSearcher(
             $"SELECT * FROM Win32_DiskPartition WHERE DiskIndex = {diskIndex}");
@@ -87,9 +89,17 @@ public static class DiskService
                     volumes = [unlettered];
             }
 
+            // Windows mounted no volume on it (offline disk, automount off, a type it does not mount): no letter and no
+            // \\?\Volume{guid}\ path. Its file system can still be read straight from the disk.
+            bool unmounted = volumes.Count == 0 && (diskOffline || info is { Letter: null } && VolumeGuidPath(info.AccessPaths) is null);
+            if (unmounted && rawDisk.ReadUsage(offset, size) is { } usage)
+                volumes = [new LogicalVolumeInfo("", usage.Label, usage.FileSystem.ToString(), usage.Size, usage.Free, Unmounted: true)];
+
             // Like the "Status" column of Disk Management: Boot, Page File, Crash Dump, Active, partition kind.
             char? driveLetter = volumes.Count > 0 && volumes[0].Letter.Length > 0 ? char.ToUpperInvariant(volumes[0].Letter[0]) : null;
             var details = new List<string>();
+            if (diskOffline) details.Add("Disk offline");
+            else if (unmounted) details.Add("Not mounted");
             if (info?.IsBoot == true) details.Add("Boot");
             if (driveLetter is { } l && files.PageFileDrives.Contains(l)) details.Add("Page File");
             if (driveLetter is { } c && files.CrashDumpDrive == c) details.Add("Crash Dump");
@@ -184,18 +194,24 @@ public static class DiskService
         return mbrType is null ? null : "Primary Partition";
     }
 
-    /// <summary>Partition style per disk number (MSFT_Disk.PartitionStyle: 0 = RAW, 1 = MBR, 2 = GPT; best effort).</summary>
-    private static Dictionary<int, string> FindPartitionStyles()
+    /// <summary>
+    /// Partition style per disk number (MSFT_Disk.PartitionStyle: 0 = RAW, 1 = MBR, 2 = GPT) and the disks that are
+    /// offline (MSFT_Disk.IsOffline; Windows mounts no volume of theirs). Best effort.
+    /// </summary>
+    private static Dictionary<int, string> FindPartitionStyles(out HashSet<int> offline)
     {
         var styles = new Dictionary<int, string>();
+        offline = [];
         try
         {
             var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
             using var searcher = new ManagementObjectSearcher(scope,
-                new ObjectQuery("SELECT Number, PartitionStyle FROM MSFT_Disk"));
+                new ObjectQuery("SELECT Number, PartitionStyle, IsOffline FROM MSFT_Disk"));
             foreach (var obj in searcher.Get())
             {
                 using var disk = (ManagementObject)obj;
+                if (disk["IsOffline"] is true && int.TryParse(Text(disk["Number"]), out int offlineNumber))
+                    offline.Add(offlineNumber);
                 string? style = Convert.ToInt32(disk["PartitionStyle"] ?? 0) switch
                 {
                     0 => "Uninitialized",
@@ -210,8 +226,60 @@ public static class DiskService
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException or FormatException)
         {
             styles.Clear();
+            offline.Clear();
         }
         return styles;
+    }
+
+    /// <summary>
+    /// Opens the physical disk the first time a partition of it needs to be read directly, and remembers each usage it
+    /// read for as long as the partition starts with the same boot sector: an unmounted volume rarely changes, and a
+    /// refresh should not count every bitmap again. Any failure (not administrator, a read error) just leaves it unknown.
+    /// </summary>
+    private sealed class LazyRawDisk(int diskNumber) : IDisposable
+    {
+        private static readonly Dictionary<(int Disk, ulong Offset, ulong Size), (byte[] Boot, FileSystemUsage Usage)> Cache = [];
+        private RawDisk? _disk;
+        private bool _failed;
+
+        public FileSystemUsage? ReadUsage(ulong offset, ulong size)
+        {
+            if (_failed) return null;
+            try
+            {
+                _disk ??= RawDisk.Open(diskNumber);
+                var disk = _disk;
+                long start = checked((long)offset);
+                int Read(long at, Span<byte> destination) =>
+                    at < 0 || (ulong)at >= size ? 0 : disk.Read(start + at, destination[..(int)Math.Min((ulong)destination.Length, size - (ulong)at)]);
+
+                var boot = new byte[512];
+                if (Read(0, boot) < boot.Length) return null;
+
+                var key = (diskNumber, offset, size);
+                lock (Cache)
+                {
+                    if (Cache.TryGetValue(key, out var cached) && cached.Boot.AsSpan().SequenceEqual(boot))
+                        return cached.Usage;
+                }
+
+                var usage = FileSystemUsageReader.Read(Read, size);
+                lock (Cache)
+                {
+                    if (usage is null) Cache.Remove(key);
+                    else Cache[key] = (boot, usage);
+                }
+                return usage;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception
+                                           or ArgumentException or OverflowException)
+            {
+                _failed = _disk is null;   // could not open the disk: do not retry for every partition
+                return null;
+            }
+        }
+
+        public void Dispose() => _disk?.Dispose();
     }
 
     /// <summary>Numbers of the physical disks that are SSDs (MSFT_PhysicalDisk.MediaType 4; best effort).</summary>

@@ -23,7 +23,8 @@ public sealed record PartitionRow(
     int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0,
     IReadOnlyList<string>? Details = null, bool Reserved = false,
     ulong? VolumeSize = null,   // capacity of the volume when its usage is known (with or without a drive letter)
-    string? VolumePath = null);   // GUID path of a volume without a drive letter (what a scan opens it by)
+    string? VolumePath = null,   // GUID path of a volume without a drive letter (what a scan opens it by)
+    bool Unmounted = false);   // usage read straight from the disk: Windows has no volume to act on
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
@@ -257,7 +258,8 @@ public partial class MainWindow : Window
                     type, letter, volume.Label, partition.Size, used, false, disk.Index, partition.Number, gpt,
                     Offset: partition.Offset, Details: partition.Details,
                     VolumeSize: letter is not null || volume.FileSystem is not null ? volume.Size : null,
-                    VolumePath: letter is null ? volume.VolumePath : null));
+                    VolumePath: letter is null ? volume.VolumePath : null,
+                    Unmounted: volume.Unmounted));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
@@ -519,7 +521,7 @@ public partial class MainWindow : Window
         // Format and Delete also work on a partition without a letter (addressed by disk and number); Label and
         // Check need a volume Windows can read there.
         bool hasPartition = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0 };
-        bool hasVolume = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0, VolumeSize: not null };
+        bool hasVolume = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0, VolumeSize: not null, Unmounted: false };
         OpResize.IsEnabled = hasLetter;
         OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
         OpSplit.IsEnabled = hasLetter;
@@ -1064,7 +1066,7 @@ public partial class MainWindow : Window
 
     private void OpCreate_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { Unallocated: true, Uninitialized: false } free) return;
+        if (Selected is not { Unallocated: true, Uninitialized: false } free || RefuseOffline(free.DiskIndex, "Create partition")) return;
 
         var dialog = new ParametersDialog("Create partition",
             $"Disk {free.DiskIndex} — free space: {free.Capacity}",
@@ -1246,7 +1248,7 @@ public partial class MainWindow : Window
 
     private void OpShow_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { Unallocated: false, Letter: null, PartitionNumber: > 0 } row) return;
+        if (Selected is not { Unallocated: false, Letter: null, PartitionNumber: > 0 } row || RefuseOffline(row.DiskIndex, "Show partition")) return;
 
         var dialog = new ParametersDialog("Show partition",
             $"Disk {row.DiskIndex}, partition {row.PartitionNumber} — {row.Capacity}",
@@ -1271,6 +1273,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Windows refuses to change an offline disk (Add-PartitionAccessPath, Format-Volume… fail with "Not Supported"),
+    /// so explain it before queueing an operation that would only fail when applied. True when it was refused.
+    /// </summary>
+    private bool RefuseOffline(int diskIndex, string title)
+    {
+        if (_disks.FirstOrDefault(d => d.Index == diskIndex) is not { IsOffline: true }) return false;
+        MessageBox.Show(this,
+            $"Disk {diskIndex} is offline, so Windows does not allow changes to it.\n\n" +
+            "Bring it online first (Disk Management: right-click the disk → Online, or in PowerShell as administrator: " +
+            $"Set-Disk -Number {diskIndex} -IsOffline $false), then click Refresh.",
+            title, MessageBoxButton.OK, MessageBoxImage.Information);
+        return true;
+    }
+
+    /// <summary>
     /// Why a partition without a drive letter must not be erased, or null when it may be. The letter-based checks
     /// (Windows drive) cannot see these, so the Status roles of the row are used; the generated script also refuses
     /// a partition that is boot or system.
@@ -1291,7 +1308,7 @@ public partial class MainWindow : Window
         Func<char, PartitionTarget?, string[], DiskOperation> create, string? warning = null,
         bool needsVolume = false, bool erases = false)
     {
-        if (Selected is not { Unallocated: false } row) return;
+        if (Selected is not { Unallocated: false } row || RefuseOffline(row.DiskIndex, title)) return;
 
         PartitionTarget? target = null;
         string subject;
@@ -1302,6 +1319,12 @@ public partial class MainWindow : Window
         else
         {
             if (row.PartitionNumber < 1) return;
+            if (needsVolume && row.Unmounted)
+            {
+                MessageBox.Show(this, "Windows has not mounted this partition (the disk is offline or automount is off), so this does not apply to it.",
+                    title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
             if (needsVolume && row.VolumeSize is null)
             {
                 MessageBox.Show(this, "Windows cannot read a file system on this partition, so this does not apply to it.",
