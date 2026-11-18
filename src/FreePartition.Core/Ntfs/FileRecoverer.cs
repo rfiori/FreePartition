@@ -21,10 +21,9 @@ public sealed class FileRecoverer
         if (!file.CanRecover)
             throw new InvalidOperationException("This file cannot be recovered: its data was overwritten with zeros.");
 
-        string destinationRoot = Path.GetPathRoot(Path.GetFullPath(destinationFolder)) ?? "";
-        if (destinationRoot.StartsWith(result.Drive + ":", StringComparison.OrdinalIgnoreCase))
+        if (VolumeNames.IsOnVolume(destinationFolder, result.Drive))
             throw new InvalidOperationException(
-                $"Choose a folder on ANOTHER disk. Writing to {result.Drive}: may overwrite the data you want to recover.");
+                $"Choose a folder on ANOTHER disk. Writing to {VolumeNames.Describe(result.Drive)} may overwrite the data you want to recover.");
 
         if (keepFolders)
             destinationFolder = Path.Combine([destinationFolder, .. FolderSegments(file.Path)]);

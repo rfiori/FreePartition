@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +9,21 @@ using Microsoft.Win32;
 
 namespace FreePartition.Wpf;
 
+/// <summary>
+/// A volume the recovery window can scan: a drive letter, or the GUID path of a volume that has none
+/// (<see cref="Key"/> is what the scan opens; <see cref="Display"/> is what the list shows).
+/// </summary>
+public sealed record RecoverySource(string Key, string Display, string? FileSystem)
+{
+    public override string ToString() => Display;
+
+    public static RecoverySource ForPartition(
+        string volumePath, int disk, int partition, string? label, string? fileSystem, string capacity) =>
+        new(volumePath,
+            $"Disk {disk}, partition {partition}" + (string.IsNullOrEmpty(label) ? "" : $" {label}") + $" ({fileSystem}, {capacity})",
+            fileSystem);
+}
+
 /// <summary>MFT scan and recovery of deleted files (read-only on the source).</summary>
 public partial class RecoveryWindow : Window
 {
@@ -16,8 +32,9 @@ public partial class RecoveryWindow : Window
     private bool _recovering;
     private ScanResult? _result;
     private readonly HashSet<long> _checked = new();   // MFT record numbers of the checked files
+    private readonly ObservableCollection<RecoverySource> _sources = new();
 
-    public RecoveryWindow(char? initialDrive = null)
+    public RecoveryWindow(RecoverySource? initial = null)
     {
         InitializeComponent();
         WindowFit.Apply(this);
@@ -25,26 +42,44 @@ public partial class RecoveryWindow : Window
         CmbCategory.SelectedIndex = 0;
         CmbMinUnit.ItemsSource = CmbMaxUnit.ItemsSource = SizeUnits.Select(u => u.Name).ToList();
         CmbMinUnit.SelectedIndex = CmbMaxUnit.SelectedIndex = 1;   // MB
-        LoadDrives(initialDrive);
-        _ = LoadMediaTypesAsync();
+        CmbDrives.ItemsSource = _sources;
+        LoadDrives(initial);
+        _ = LoadDiskInfoAsync();
     }
 
-    /// <summary>Letters of the drives that sit on an SSD (filled in the background: WMI can be slow).</summary>
+    /// <summary>Keys (letter or GUID path) of the volumes that sit on an SSD (filled in the background: WMI can be slow).</summary>
     private readonly HashSet<string> _ssdDrives = new();
 
-    private async Task LoadMediaTypesAsync()
+    /// <summary>
+    /// Fills in, in the background (WMI can be slow), what the quick list of lettered drives cannot know: which volumes
+    /// sit on an SSD, and the volumes without a drive letter, which Windows still lets a scan open by their GUID path.
+    /// </summary>
+    private async Task LoadDiskInfoAsync()
     {
         try
         {
             var disks = await Task.Run(DiskService.ListDisks);
-            foreach (var disk in disks.Where(d => d.IsSsd))
+            foreach (var disk in disks)
             {
-                foreach (var volume in disk.Partitions.SelectMany(p => p.Volumes))
+                foreach (var partition in disk.Partitions)
                 {
-                    if (volume.Letter.Length > 0)
-                        _ssdDrives.Add(char.ToUpperInvariant(volume.Letter[0]).ToString());
+                    foreach (var volume in partition.Volumes)
+                    {
+                        string? key = volume.Letter.Length > 0 ? char.ToUpperInvariant(volume.Letter[0]).ToString() : volume.VolumePath;
+                        if (key is null) continue;
+
+                        if (disk.IsSsd) _ssdDrives.Add(key);
+                        if (volume.Letter.Length == 0 && CanScan(volume.FileSystem) && _sources.All(s => s.Key != key))
+                        {
+                            _sources.Add(RecoverySource.ForPartition(key, disk.Index, partition.Number, volume.Label,
+                                volume.FileSystem, ByteFormatter.Format(volume.Size)));
+                            _formats[key] = volume.FileSystem!;
+                        }
+                    }
                 }
             }
+            if (CmbDrives.SelectedItem is null && _sources.Count > 0)
+                CmbDrives.SelectedIndex = 0;
             UpdateTrimWarning();
         }
         catch (Exception ex) when (ex is System.Management.ManagementException or UnauthorizedAccessException)
@@ -62,16 +97,20 @@ public partial class RecoveryWindow : Window
     /// <summary>File systems the carver can read: only the MFT scan needs NTFS.</summary>
     private static readonly string[] SupportedFormats = ["NTFS", "FAT", "FAT32", "exFAT"];
 
-    /// <summary>File system of each listed drive, by letter.</summary>
+    /// <summary>Whether a volume with this file system can be scanned.</summary>
+    public static bool CanScan(string? fileSystem) =>
+        fileSystem is not null && SupportedFormats.Contains(fileSystem, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>File system of each listed drive, by key (letter or GUID path).</summary>
     private readonly Dictionary<string, string> _formats = new();
 
-    private bool IsNtfs(string drive) =>
-        _formats.TryGetValue(drive, out var format) && string.Equals(format, "NTFS", StringComparison.OrdinalIgnoreCase);
+    private bool IsNtfs(RecoverySource source) =>
+        _formats.TryGetValue(source.Key, out var format) && string.Equals(format, "NTFS", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Carving is the only way to scan a FAT/exFAT drive, so it is forced on there; on NTFS it is the user's choice.</summary>
     private void UpdateCarveOption()
     {
-        if (CmbDrives.SelectedItem is not string drive) return;
+        if (CmbDrives.SelectedItem is not RecoverySource drive) return;
 
         bool ntfs = IsNtfs(drive);
         ChkCarve.IsChecked = !ntfs;
@@ -87,7 +126,7 @@ public partial class RecoveryWindow : Window
     private void UpdateCarveNote()
     {
         bool carve = ChkCarve.IsChecked == true;
-        bool ntfs = CmbDrives.SelectedItem is string drive && IsNtfs(drive);
+        bool ntfs = CmbDrives.SelectedItem is RecoverySource drive && IsNtfs(drive);
 
         TxtCarveNote.Visibility = carve ? Visibility.Visible : Visibility.Collapsed;
         TxtCarveNote.Text = !ntfs
@@ -98,7 +137,7 @@ public partial class RecoveryWindow : Window
     }
 
     private void UpdateTrimWarning() =>
-        TrimWarning.Visibility = CmbDrives.SelectedItem is string drive && _ssdDrives.Contains(drive)
+        TrimWarning.Visibility = CmbDrives.SelectedItem is RecoverySource drive && _ssdDrives.Contains(drive.Key)
             ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>A scan can be interrupted after a confirmation; copying recovered files cannot, so closing waits for it.</summary>
@@ -122,33 +161,46 @@ public partial class RecoveryWindow : Window
         _cts?.Cancel();
     }
 
-    private void LoadDrives(char? initialDrive)
+    /// <summary>Lists the lettered drives now; the volumes without a letter join later (<see cref="LoadDiskInfoAsync"/>).</summary>
+    private void LoadDrives(RecoverySource? initial)
     {
         var candidates = DriveInfo.GetDrives()
             .Where(d => d.IsReady
                         && (d.DriveType == DriveType.Fixed || d.DriveType == DriveType.Removable)
-                        && SupportedFormats.Contains(d.DriveFormat, StringComparer.OrdinalIgnoreCase))
+                        && CanScan(d.DriveFormat))
             .ToList();
 
         _formats.Clear();
+        _sources.Clear();
         foreach (var drive in candidates)
-            _formats[drive.Name.TrimEnd('\\', ':')] = drive.DriveFormat;
-        var drives = candidates.Select(d => d.Name.TrimEnd('\\', ':')).ToList();
+        {
+            string letter = drive.Name.TrimEnd('\\', ':');
+            _formats[letter] = drive.DriveFormat;
+            _sources.Add(new RecoverySource(letter, $"{letter}:", drive.DriveFormat));
+        }
 
-        CmbDrives.ItemsSource = drives;
-        if (initialDrive is { } letter && drives.Contains(char.ToUpperInvariant(letter).ToString()))
-            CmbDrives.SelectedItem = char.ToUpperInvariant(letter).ToString();
-        else if (drives.Count > 0)
+        // A volume chosen in the main window may have no letter, so the quick list does not have it yet.
+        if (initial is { FileSystem: { } fileSystem } && _sources.All(s => !string.Equals(s.Key, initial.Key, StringComparison.OrdinalIgnoreCase)))
+        {
+            _formats[initial.Key] = fileSystem;
+            _sources.Add(initial);
+        }
+
+        var chosen = initial is null ? null : _sources.FirstOrDefault(s => string.Equals(s.Key, initial.Key, StringComparison.OrdinalIgnoreCase));
+        if (chosen is not null)
+            CmbDrives.SelectedItem = chosen;
+        else if (_sources.Count > 0)
             CmbDrives.SelectedIndex = 0;
     }
 
     private async void BtnScan_Click(object sender, RoutedEventArgs e)
     {
-        if (CmbDrives.SelectedItem is not string drive)
+        if (CmbDrives.SelectedItem is not RecoverySource source)
         {
             MessageBox.Show(this, "No NTFS, FAT32 or exFAT drive available.", "Notice");
             return;
         }
+        string drive = source.Key;
 
         bool carve = ChkCarve.IsChecked == true;
 
@@ -268,7 +320,7 @@ public partial class RecoveryWindow : Window
         BtnScan.IsEnabled = !running;
         BtnCancel.IsEnabled = running;
         CmbDrives.IsEnabled = !running;
-        ChkCarve.IsEnabled = !running && CmbDrives.SelectedItem is string drive && IsNtfs(drive);
+        ChkCarve.IsEnabled = !running && CmbDrives.SelectedItem is RecoverySource drive && IsNtfs(drive);
         _busy = running;
         UpdateRecoverButton();
     }
@@ -470,7 +522,7 @@ public partial class RecoveryWindow : Window
             return;
         }
 
-        var dialog = new OpenFolderDialog { Title = $"Destination folder (must be on ANOTHER disk, not {result.Drive}:)" };
+        var dialog = new OpenFolderDialog { Title = $"Destination folder (must be on ANOTHER disk, not {VolumeNames.Describe(result.Drive)})" };
         if (dialog.ShowDialog(this) != true) return;
         string destination = dialog.FolderName;
 

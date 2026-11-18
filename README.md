@@ -40,6 +40,9 @@ Requires Windows 10 / 11 (64-bit). To copy Windows to another disk you also need
   then **Run anyway**.
 - **Check your download** (optional): run `Get-FileHash <file>.zip -Algorithm SHA256` in PowerShell and compare the
   result with `SHA256SUMS.txt`, attached to the same release.
+- **Updates:** at startup FreePartition checks GitHub for a newer release and offers it. **Update now** downloads the
+  same kind of zip you use, checks it against `SHA256SUMS.txt` and restarts the app. It never updates while operations
+  are running or queued. Turn the startup check off, or check by hand, in the **Help** menu.
 
 ## Table of contents
 
@@ -440,6 +443,6 @@ Issues and pull requests are welcome.
 MIT — see [LICENSE](LICENSE).
 
 Privacy policy: [English](docs/privacy/PRIVACY.md) · [Español](docs/privacy/PRIVACY.es.md) ·
-[Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data and makes no network connections.
+[Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data. Its only network call is an optional check for a new version on GitHub (**Help > Check for updates on startup**).
 
 FreePartition is an independent project and is not affiliated with any company.

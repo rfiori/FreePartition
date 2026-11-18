@@ -231,6 +231,15 @@
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="Help">
+                <MenuItem Header="Check for updates…" Click="MenuCheckUpdates_Click">
+                    <MenuItem.Icon>
+                        <TextBlock Style="{StaticResource Icon}" Text="&#xE895;" Foreground="{StaticResource Accent}"
+                                   Width="Auto" HorizontalAlignment="Center" />
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem x:Name="MenuUpdateOnStartup" Header="Check for updates on startup" IsCheckable="True"
+                          Click="MenuUpdateOnStartup_Click" />
+                <Separator />
                 <MenuItem Header="About" Click="MenuAbout_Click">
                     <MenuItem.Icon>
                         <TextBlock Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{StaticResource Accent}"

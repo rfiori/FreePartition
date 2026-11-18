@@ -6,7 +6,7 @@ using Microsoft.Win32.SafeHandles;
 namespace FreePartition.Core.Disks;
 
 /// <summary>
-/// READ-ONLY access to the raw volume (\\.\C:).
+/// READ-ONLY access to the raw volume (\\.\C:, or \\?\Volume{guid} for a volume without a drive letter).
 /// A raw volume requires sector-aligned reads; this type handles the alignment
 /// (it uses 4096 bytes, which works for both 512-byte and 4Kn disks).
 /// Requires running as administrator.
@@ -29,14 +29,25 @@ public sealed partial class RawVolume : IDisposable
         Drive = drive;
     }
 
-    /// <param name="driveLetter">"C", "C:" or "C:\"</param>
-    public static RawVolume Open(string driveLetter)
+    /// <param name="volume">"C", "C:" or "C:\", or the GUID path of a volume without a letter ("\\?\Volume{guid}\")</param>
+    public static RawVolume Open(string volume)
     {
-        string letter = (driveLetter ?? "").Trim().TrimEnd('\\', ':').ToUpperInvariant();
-        if (letter.Length != 1 || !char.IsAsciiLetter(letter[0]))
-            throw new ArgumentException("Enter a valid drive letter (e.g. C).", nameof(driveLetter));
+        string name, device;
+        if (VolumeNames.NormalizeGuidPath(volume) is { } guid)
+        {
+            name = guid;
+            device = guid.TrimEnd('\\');   // with the final backslash CreateFile would open the file system, not the volume
+        }
+        else
+        {
+            string letter = (volume ?? "").Trim().TrimEnd('\\', ':').ToUpperInvariant();
+            if (letter.Length != 1 || !char.IsAsciiLetter(letter[0]))
+                throw new ArgumentException("Enter a valid drive letter (e.g. C).", nameof(volume));
+            name = letter;
+            device = $@"\\.\{letter}:";
+        }
 
-        var handle = CreateFile($@"\\.\{letter}:", GenericRead, FileShareRead | FileShareWrite,
+        var handle = CreateFile(device, GenericRead, FileShareRead | FileShareWrite,
             IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
 
         if (handle.IsInvalid)
@@ -44,10 +55,10 @@ public sealed partial class RawVolume : IDisposable
             int error = Marshal.GetLastPInvokeError();
             handle.Dispose();
             throw new Win32Exception(error,
-                $"Could not open volume {letter}: (run as administrator).");
+                $"Could not open volume {VolumeNames.Describe(name)} (run as administrator).");
         }
 
-        return new RawVolume(handle, letter);
+        return new RawVolume(handle, name);
     }
 
     /// <summary>
