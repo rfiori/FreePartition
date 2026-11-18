@@ -514,6 +514,10 @@ public partial class MainWindow : Window
     private void RefreshAvailableOperations()
     {
         bool hasLetter = Selected is { Unallocated: false, Letter: not null };
+        // Format and Delete also work on a partition without a letter (addressed by disk and number); Label and
+        // Check need a volume Windows can read there.
+        bool hasPartition = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0 };
+        bool hasVolume = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0, VolumeSize: not null };
         OpResize.IsEnabled = hasLetter;
         OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
         OpSplit.IsEnabled = hasLetter;
@@ -521,18 +525,18 @@ public partial class MainWindow : Window
         OpMove.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot move
         OpAlign.IsEnabled = Selected is { Unallocated: false, PartitionNumber: > 0 } aligned
                             && PartitionAlignment.Classify(aligned.Offset) == AlignmentStatus.Misaligned;
-        OpLabel.IsEnabled = hasLetter;
+        OpLabel.IsEnabled = hasVolume;
         OpLetter.IsEnabled = hasLetter;
-        OpFormat.IsEnabled = hasLetter;
+        OpFormat.IsEnabled = hasPartition;
         OpConvert.IsEnabled = hasLetter && Selected is { FileSystem: "FAT32" or "NTFS" };
         OpConvertStyle.IsEnabled = Selected is not null;   // any row of the disk; it explains why a disk cannot be converted
-        OpDelete.IsEnabled = hasLetter;
+        OpDelete.IsEnabled = hasPartition;
         OpWipe.IsEnabled = hasLetter && Selected is { PartitionNumber: > 0 };
         OpWipeFree.IsEnabled = hasLetter;
         OpWipeDisk.IsEnabled = Selected is not null;   // any row of the disk; it explains why a disk cannot be wiped
         OpCreate.IsEnabled = Selected is { Unallocated: true, Uninitialized: false };
         OpInitialize.IsEnabled = Selected is { Unallocated: true, Uninitialized: true };
-        OpCheck.IsEnabled = hasLetter;
+        OpCheck.IsEnabled = hasVolume;
         OpActive.IsEnabled = Selected is { Unallocated: false, Letter: not null, Gpt: false, PartitionNumber: > 0 };
         OpHide.IsEnabled = hasLetter;
         OpShow.IsEnabled = Selected is { Unallocated: false, Letter: null, PartitionNumber: > 0 };
@@ -956,9 +960,10 @@ public partial class MainWindow : Window
     }
 
     private void OpLabel_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Change label",
+        AddPartitionOperation("Change label",
             [new DialogField("New label:", Selected?.Label ?? "")],
-            (letter, v) => new ChangeVolumeLabel(letter, v[0]));
+            (letter, target, v) => new ChangeVolumeLabel(letter, v[0], target),
+            needsVolume: true);
 
     private const string AutomaticLetter = "(automatic)";
 
@@ -991,11 +996,11 @@ public partial class MainWindow : Window
             });
 
     private void OpFormat_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Format partition",
+        AddPartitionOperation("Format partition",
             [new DialogField("File system:", "NTFS", Enum.GetNames<FileSystemFormat>()),
              new DialogField("Label:", Selected?.Label ?? "")],
-            (letter, v) => new FormatVolume(letter, ConvertFileSystem(v[0]), v[1]),
-            "Formatting ERASES all data on the drive.");
+            (letter, target, v) => new FormatVolume(letter, ConvertFileSystem(v[0]), v[1], target),
+            "Formatting ERASES all data on the drive.", erases: true);
 
     private void OpConvert_Click(object sender, RoutedEventArgs e)
     {
@@ -1107,9 +1112,9 @@ public partial class MainWindow : Window
     }
 
     private void OpDelete_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Delete partition", [],
-            (letter, _) => new DeletePartition(letter),
-            "Deleting ERASES all data on the drive.");
+        AddPartitionOperation("Delete partition", [],
+            (letter, target, _) => new DeletePartition(letter, target),
+            "Deleting ERASES all data on the drive.", erases: true);
 
     // ------------------------------------------------------------------ Wipe
 
@@ -1220,10 +1225,11 @@ public partial class MainWindow : Window
     private const string ScanAndRepair = "Scan and repair";
 
     private void OpCheck_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Check for errors",
+        AddPartitionOperation("Check for errors",
             [new DialogField("Mode:", ScanOnly, [ScanOnly, ScanAndRepair])],
-            (letter, v) => new CheckVolume(letter, Repair: v[0] == ScanAndRepair),
-            "Repairing takes the volume offline and is not allowed on the Windows drive.");
+            (letter, target, v) => new CheckVolume(letter, Repair: v[0] == ScanAndRepair, Partition: target),
+            "Repairing takes the volume offline and is not allowed on the Windows drive.",
+            needsVolume: true);
 
     private void OpActive_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Set active partition", [],
@@ -1256,6 +1262,67 @@ public partial class MainWindow : Window
             _queue.Add(new ShowPartition(row.DiskIndex, row.PartitionNumber, letter));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Why a partition without a drive letter must not be erased, or null when it may be. The letter-based checks
+    /// (Windows drive) cannot see these, so the Status roles of the row are used; the generated script also refuses
+    /// a partition that is boot or system.
+    /// </summary>
+    private static string? ProtectedReason(PartitionRow row)
+    {
+        var role = row.Details?.FirstOrDefault(d =>
+            d is "Boot" or "Page File" or "Crash Dump" or "Active" or "EFI System Partition" or "Reserved Partition");
+        return role is null ? null : $"This partition is marked \"{role}\" (it holds Windows or boot files), so it cannot be changed here.";
+    }
+
+    /// <summary>
+    /// Like <see cref="AddWithDialog"/> for operations that also work on a partition without a drive letter, which
+    /// is then addressed by disk number, partition number and offset. <paramref name="needsVolume"/>: the operation
+    /// needs a file system Windows can read; <paramref name="erases"/>: refuse the partitions that hold the boot files.
+    /// </summary>
+    private void AddPartitionOperation(string title, IReadOnlyList<DialogField> fields,
+        Func<char, PartitionTarget?, string[], DiskOperation> create, string? warning = null,
+        bool needsVolume = false, bool erases = false)
+    {
+        if (Selected is not { Unallocated: false } row) return;
+
+        PartitionTarget? target = null;
+        string subject;
+        if (row.Letter is { } letter)
+        {
+            subject = $"Drive {letter}:";
+        }
+        else
+        {
+            if (row.PartitionNumber < 1) return;
+            if (needsVolume && row.VolumeSize is null)
+            {
+                MessageBox.Show(this, "Windows cannot read a file system on this partition, so this does not apply to it.",
+                    title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (erases && ProtectedReason(row) is { } reason)
+            {
+                MessageBox.Show(this, reason, title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            target = new PartitionTarget(row.DiskIndex, row.PartitionNumber, (long)row.Offset);
+            subject = $"Disk {row.DiskIndex}, partition {row.PartitionNumber} ({row.Capacity}" +
+                      (string.IsNullOrEmpty(row.FileSystem) || row.FileSystem == UnknownFileSystem ? ")" : $", {row.FileSystem})");
+        }
+
+        var dialog = new ParametersDialog(title, warning is null ? subject : $"{subject} — {warning}", fields) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            _queue.Add(create(row.Letter ?? DiskOperation.NoLetter, target, dialog.Values));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
         {
             MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }

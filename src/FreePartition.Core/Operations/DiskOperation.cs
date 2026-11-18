@@ -62,6 +62,44 @@ public abstract record DiskOperation
         return char.ToUpperInvariant(letter);
     }
 
+    /// <summary>The "drive" of an operation on a partition that has no drive letter (it is addressed by <see cref="PartitionTarget"/>).</summary>
+    public const char NoLetter = '\0';
+
+    /// <summary>"F:" for a lettered volume, "partition 3 of disk 2" for one addressed by disk and number.</summary>
+    protected static string Subject(char drive, PartitionTarget? target) =>
+        drive == NoLetter && target is not null
+            ? $"partition {target.PartitionNumber} of disk {target.DiskNumber}"
+            : $"{char.ToUpperInvariant(drive)}:";
+
+    protected static IReadOnlyList<char> DrivesOf(char drive) =>
+        drive == NoLetter ? Array.Empty<char>() : new[] { char.ToUpperInvariant(drive) };
+
+    /// <summary>A letter, or (with <see cref="NoLetter"/>) a valid disk/partition/offset.</summary>
+    protected static void ValidateSubject(char drive, PartitionTarget? target)
+    {
+        if (drive == NoLetter)
+        {
+            if (target is null)
+                throw new ArgumentException("A partition without a drive letter needs its disk and partition number.");
+            target.Validate();
+        }
+        else
+        {
+            NormalizeLetter(drive);
+        }
+    }
+
+    /// <summary>
+    /// Script that puts the partition in $p, and stops before changing anything if it is no longer the one the user
+    /// chose (queued deletions can renumber partitions) or if it holds Windows or the boot files.
+    /// </summary>
+    protected static string FindPartition(PartitionTarget target, bool refuseSystem) =>
+        $"$p = Get-Partition -DiskNumber {target.DiskNumber} -PartitionNumber {target.PartitionNumber}; " +
+        $"if ($p.Offset -ne {target.OffsetBytes}) {{ throw 'Partition {target.PartitionNumber} of disk {target.DiskNumber} is no longer where it was when this was queued. Nothing was changed.' }}; " +
+        (refuseSystem
+            ? "if ($p.IsBoot -or $p.IsSystem) { throw 'This partition holds Windows or the boot files, so it is not touched.' }; "
+            : "");
+
     /// <summary>Accepts only letters, numbers, space, '_' and '-': nothing that could break the script.</summary>
     protected static string ValidateLabel(string? label, int maxLength)
     {
@@ -71,6 +109,23 @@ public abstract record DiskOperation
         if (!LabelPattern.IsMatch(label))
             throw new ArgumentException("The label can only contain letters, numbers, space, '_' and '-'.");
         return label;
+    }
+}
+
+/// <summary>
+/// A partition addressed by disk and number, for operations on partitions that have no drive letter.
+/// The offset lets the script check it is still the partition the user saw.
+/// </summary>
+public sealed record PartitionTarget(int DiskNumber, int PartitionNumber, long OffsetBytes)
+{
+    public void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        if (PartitionNumber < 1)
+            throw new ArgumentException("Invalid partition number.");
+        if (OffsetBytes < 0)
+            throw new ArgumentException("Invalid partition offset.");
     }
 }
 
@@ -111,19 +166,20 @@ public enum FileSystemFormat
 }
 
 /// <summary>Formats a volume. ERASES all data on the drive.</summary>
-public sealed record FormatVolume(char Drive, FileSystemFormat FileSystem, string Label = "") : DiskOperation
+public sealed record FormatVolume(
+    char Drive, FileSystemFormat FileSystem, string Label = "", PartitionTarget? Partition = null) : DiskOperation
 {
     public override string Description =>
-        $"Format {char.ToUpperInvariant(Drive)}: as {FileSystem}" +
+        $"Format {Subject(Drive, Partition)} as {FileSystem}" +
         (string.IsNullOrEmpty(Label) ? "" : $" (label \"{Label}\")") + " — ERASES ALL DATA";
 
     public override bool Destructive => true;
     public override bool ForbiddenOnSystemDrive => true;
-    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+    public override IReadOnlyList<char> AffectedDrives => DrivesOf(Drive);
 
     public override void Validate()
     {
-        NormalizeLetter(Drive);
+        ValidateSubject(Drive, Partition);
         if (!Enum.IsDefined(FileSystem))
             throw new ArgumentException("Invalid file system. Use NTFS, FAT32 or exFAT.");
         ValidateLabel(Label, FileSystem == FileSystemFormat.FAT32 ? 11 : 32);
@@ -132,27 +188,35 @@ public sealed record FormatVolume(char Drive, FileSystemFormat FileSystem, strin
     public override string GenerateScript()
     {
         Validate();
+        if (Drive == NoLetter)
+            return FindPartition(Partition!, refuseSystem: true) +
+                   $"Format-Volume -Partition $p -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false";
+
         char d = NormalizeLetter(Drive);
         return $"Format-Volume -DriveLetter {d} -FileSystem {FileSystem} -NewFileSystemLabel '{Label ?? ""}' -Confirm:$false";
     }
 }
 
-public sealed record ChangeVolumeLabel(char Drive, string NewLabel) : DiskOperation
+public sealed record ChangeVolumeLabel(char Drive, string NewLabel, PartitionTarget? Partition = null) : DiskOperation
 {
-    public override string Description => $"Change label of {char.ToUpperInvariant(Drive)}: to \"{NewLabel}\"";
+    public override string Description => $"Change label of {Subject(Drive, Partition)} to \"{NewLabel}\"";
     public override bool Destructive => false;
     public override bool ForbiddenOnSystemDrive => false;
-    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+    public override IReadOnlyList<char> AffectedDrives => DrivesOf(Drive);
 
     public override void Validate()
     {
-        NormalizeLetter(Drive);
+        ValidateSubject(Drive, Partition);
         ValidateLabel(NewLabel, 32);
     }
 
     public override string GenerateScript()
     {
         Validate();
+        if (Drive == NoLetter)
+            return FindPartition(Partition!, refuseSystem: false) +
+                   $"$p | Get-Volume | Set-Volume -NewFileSystemLabel '{NewLabel ?? ""}'";
+
         return $"Set-Volume -DriveLetter {NormalizeLetter(Drive)} -NewFileSystemLabel '{NewLabel ?? ""}'";
     }
 }
@@ -284,24 +348,28 @@ public sealed record CreatePartition(
 /// Checks a volume for file system errors (like chkdsk). A scan only reads; a repair can change the file system
 /// (and takes the volume offline), so it is refused on the Windows drive.
 /// </summary>
-public sealed record CheckVolume(char Drive, bool Repair = false) : DiskOperation
+public sealed record CheckVolume(char Drive, bool Repair = false, PartitionTarget? Partition = null) : DiskOperation
 {
     public override string Description => Repair
-        ? $"Check {char.ToUpperInvariant(Drive)}: for errors and repair them"
-        : $"Check {char.ToUpperInvariant(Drive)}: for errors (scan only)";
+        ? $"Check {Subject(Drive, Partition)} for errors and repair them"
+        : $"Check {Subject(Drive, Partition)} for errors (scan only)";
 
     public override bool Destructive => Repair;
     public override bool ForbiddenOnSystemDrive => Repair;
     public override bool ShowsOutput => true;
-    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+    public override IReadOnlyList<char> AffectedDrives => DrivesOf(Drive);
 
-    public override void Validate() => NormalizeLetter(Drive);
+    public override void Validate() => ValidateSubject(Drive, Partition);
 
     public override string GenerateScript()
     {
         Validate();
-        char d = NormalizeLetter(Drive);
         string mode = Repair ? "-OfflineScanAndFix" : "-Scan";
+        if (Drive == NoLetter)
+            return FindPartition(Partition!, refuseSystem: Repair) +
+                   $"$r = $p | Get-Volume | Repair-Volume {mode}; \"Result for {Subject(Drive, Partition)}: $r\"";
+
+        char d = NormalizeLetter(Drive);
         return $"$r = Repair-Volume -DriveLetter {d} {mode}; \"Result for {d}: $r\"";
     }
 }
@@ -371,18 +439,24 @@ public sealed record ShowPartition(int DiskNumber, int PartitionNumber, char Let
 }
 
 /// <summary>Deletes a partition (and its volume). ERASES all data on the drive.</summary>
-public sealed record DeletePartition(char Drive) : DiskOperation
+public sealed record DeletePartition(char Drive, PartitionTarget? Partition = null) : DiskOperation
 {
-    public override string Description => $"Delete partition {char.ToUpperInvariant(Drive)}: — ERASES ALL DATA";
+    public override string Description => Drive == NoLetter
+        ? $"Delete {Subject(Drive, Partition)} — ERASES ALL DATA"
+        : $"Delete partition {char.ToUpperInvariant(Drive)}: — ERASES ALL DATA";
+
     public override bool Destructive => true;
     public override bool ForbiddenOnSystemDrive => true;
-    public override IReadOnlyList<char> AffectedDrives => new[] { char.ToUpperInvariant(Drive) };
+    public override IReadOnlyList<char> AffectedDrives => DrivesOf(Drive);
 
-    public override void Validate() => NormalizeLetter(Drive);
+    public override void Validate() => ValidateSubject(Drive, Partition);
 
     public override string GenerateScript()
     {
         Validate();
+        if (Drive == NoLetter)
+            return FindPartition(Partition!, refuseSystem: true) + "Remove-Partition -InputObject $p -Confirm:$false";
+
         return $"Remove-Partition -DriveLetter {NormalizeLetter(Drive)} -Confirm:$false";
     }
 }
