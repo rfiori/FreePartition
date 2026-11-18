@@ -46,21 +46,23 @@ public partial class PropertiesWindow : Window
         TxtTitle.Text = row.Letter is { } l ? $"{l}:" + (string.IsNullOrEmpty(row.Label) ? "" : $"  {row.Label}") : row.Name;
         TxtSubtitle.Text = string.Join("  ·  ", new[] { row.FileSystem, row.Capacity }.Where(s => !string.IsNullOrEmpty(s)));
 
-        _total = row.Size;
+        _total = row.VolumeSize ?? row.Size;
         _used = row.UsedBytes;
         if (row.Letter is { } letter && ReadDriveInfo(letter) is { } drive)
             (_total, _used) = drive;
 
         CollectFacts(row, disk, partition);
 
-        if (row.Letter is null)
+        if (row.VolumeSize is null && row.Letter is null)
         {
-            UsagePanel.Visibility = Visibility.Collapsed;   // no volume, so no used/free to show
+            UsagePanel.Visibility = Visibility.Collapsed;   // no readable volume, so no used/free to show
         }
         else
         {
             SetSegments([new UsageSegment(UsedName, Math.Min(_used, _total))]);
-            Loaded += async (_, _) => await StartAnalysisAsync(row.Letter.Value);
+            // The breakdown by file type walks the folders, which needs a drive letter.
+            if (row.Letter is { } mounted)
+                Loaded += async (_, _) => await StartAnalysisAsync(mounted);
         }
         RenderFacts();
     }
@@ -104,7 +106,7 @@ public partial class PropertiesWindow : Window
                 AddFact("General", "Windows", "Contains another Windows installation");
         }
 
-        if (row.Letter is not null)
+        if (row.Letter is not null || row.VolumeSize is not null)
         {
             AddFact("Capacity", "Volume capacity", $"{ByteFormatter.Format(_total)}  ({_total:N0} bytes)");
             AddFact("Capacity", "Used space", $"{ByteFormatter.Format(_used)}  ({Percent(_used, _total)})");
@@ -266,7 +268,7 @@ public partial class PropertiesWindow : Window
     {
         var text = new StringBuilder();
         text.AppendLine(TxtTitle.Text).AppendLine(TxtSubtitle.Text);
-        if (_row.Letter is not null && _total > 0)
+        if ((_row.Letter is not null || _row.VolumeSize is not null) && _total > 0)
         {
             text.AppendLine().AppendLine("Usage");
             foreach (var s in _segments)

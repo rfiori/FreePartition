@@ -21,7 +21,8 @@ public sealed record PartitionRow(
     string Unused, string State, string Type,
     char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
     int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0,
-    IReadOnlyList<string>? Details = null, bool Reserved = false);
+    IReadOnlyList<string>? Details = null, bool Reserved = false,
+    ulong? VolumeSize = null);   // capacity of the volume when its usage is known (with or without a drive letter)
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
@@ -33,6 +34,9 @@ public partial class MainWindow : Window
 {
     // Gaps smaller than this between partitions are alignment, not "unallocated".
     private const ulong UnallocatedThreshold = 8UL * 1024 * 1024;
+
+    // File system column of a partition that holds no volume Windows can read.
+    private const string UnknownFileSystem = "Unknown";
 
     // Used-space bar of the disk map (the border adds 2 to this height).
     private const double UsageBarHeight = 18;
@@ -230,8 +234,9 @@ public partial class MainWindow : Window
 
             if (partition.Volumes.Count == 0)
             {
-                rows.Add(new PartitionRow(title, $"Partition {partition.Index}", "", ByteFormatter.Format(partition.Size),
-                    "", "", state, type, null, null, partition.Size, 0, false, disk.Index, partition.Number, gpt,
+                // No volume Windows can read (unformatted, ext4, locked BitLocker...): say so instead of looking empty.
+                rows.Add(new PartitionRow(title, $"Partition {partition.Index}", UnknownFileSystem, ByteFormatter.Format(partition.Size),
+                    "Unknown", "Unknown", state, type, null, null, partition.Size, 0, false, disk.Index, partition.Number, gpt,
                     Offset: partition.Offset, Details: partition.Details));
             }
 
@@ -240,6 +245,8 @@ public partial class MainWindow : Window
                 char? letter = volume.Letter.Length > 0 && char.IsLetter(volume.Letter[0]) ? char.ToUpperInvariant(volume.Letter[0]) : null;
                 string name = letter is null ? $"Partition {partition.Index}"
                     : string.IsNullOrEmpty(volume.Label) ? $"{letter}:" : $"{letter}: {volume.Label}";
+                if (letter is null && !string.IsNullOrEmpty(volume.Label))
+                    name += $" {volume.Label}";
                 ulong used = volume.Size > volume.Free ? volume.Size - volume.Free : 0;
 
                 rows.Add(new PartitionRow(title, name, volume.FileSystem ?? "",
@@ -247,7 +254,8 @@ public partial class MainWindow : Window
                     WithPercent(volume.Free, volume.Size),
                     state,
                     type, letter, volume.Label, partition.Size, used, false, disk.Index, partition.Number, gpt,
-                    Offset: partition.Offset, Details: partition.Details));
+                    Offset: partition.Offset, Details: partition.Details,
+                    VolumeSize: letter is not null || volume.FileSystem is not null ? volume.Size : null));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
@@ -351,9 +359,9 @@ public partial class MainWindow : Window
 
         if (!empty)
         {
-            // Used space as a rounded bar with the percentage inside. Without a volume (no drive letter) there is
+            // Used space as a rounded bar with the percentage inside. Without a readable volume there is
             // no usage to show, so the bar stays empty instead of claiming 0%.
-            bool hasUsage = part.Letter is not null;
+            bool hasUsage = part.VolumeSize is not null;
             double fraction = !hasUsage || part.Size == 0 ? 0 : Math.Clamp((double)part.UsedBytes / part.Size, 0, 1);
             var bar = new Grid();
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(fraction, 0.0001), GridUnitType.Star) });
