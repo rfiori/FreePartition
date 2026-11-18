@@ -21,7 +21,7 @@
 
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Drive:" VerticalAlignment="Center" />
-            <ComboBox x:Name="CmbDrives" Width="80" Margin="8,0,0,0" SelectionChanged="CmbDrives_SelectionChanged" />
+            <ComboBox x:Name="CmbDrives" MinWidth="80" MaxWidth="380" Margin="8,0,0,0" SelectionChanged="CmbDrives_SelectionChanged" />
             <CheckBox x:Name="ChkCarve" Content="Carve files by signature" VerticalAlignment="Center" Margin="16,0,0,0"
                       ToolTip="Searches the whole drive for known file types by their content (photos, video, audio, documents, archives, databases, programs), ignoring the file system. Slower, and the files come back without their names and folders. Always used on FAT/exFAT and when the NTFS MFT is damaged."
                       Checked="ChkCarve_Changed" Unchecked="ChkCarve_Changed" />

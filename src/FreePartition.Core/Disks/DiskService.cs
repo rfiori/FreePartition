@@ -12,6 +12,7 @@ public static class DiskService
     {
         var result = new List<DiskInfo>();
         var volumesByPartition = MapVolumes();
+        var volumesByGuid = MapVolumesByGuid();
         var files = FindSystemFiles();
         var ssdDisks = FindSsdDisks();
         var styles = FindPartitionStyles();
@@ -22,7 +23,7 @@ public static class DiskService
             using var disk = (ManagementObject)obj;
 
             int index = Convert.ToInt32(disk["Index"] ?? 0);
-            var partitions = ListPartitions(index, volumesByPartition, files, out var reserved);
+            var partitions = ListPartitions(index, volumesByPartition, volumesByGuid, files, out var reserved);
 
             // The Storage stack knows the real style (an initialized disk can have no partitions);
             // without it, infer from the partitions: Win32_DiskPartition.Type starts with "GPT:" on GPT disks.
@@ -50,7 +51,8 @@ public static class DiskService
     // Direct queries (DiskIndex / Win32_LogicalDiskToPartition) instead of ASSOCIATORS OF,
     // which fails with "Not found" on some systems because of DeviceID escaping.
     private static List<PartitionInfo> ListPartitions(
-        int diskIndex, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition, SystemFiles files,
+        int diskIndex, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition,
+        Dictionary<string, LogicalVolumeInfo> volumesByGuid, SystemFiles files,
         out IReadOnlyList<ReservedRange> reserved)
     {
         var list = new List<PartitionInfo>();
@@ -78,6 +80,11 @@ public static class DiskService
                 // RAW partitions have a letter but no Win32_LogicalDisk, so the volume map misses them.
                 if (volumes.Count == 0 && info.Letter is { } letter)
                     volumes = [new LogicalVolumeInfo($"{letter}:", null, null, size, size)];
+                // No drive letter: Windows still mounts the volume under \\?\Volume{guid}\ when it knows the
+                // file system, and Win32_Volume reports its usage there. Unknown file systems have no such volume.
+                else if (volumes.Count == 0 && VolumeGuidPath(info.AccessPaths) is { } path
+                         && volumesByGuid.TryGetValue(path, out var unlettered))
+                    volumes = [unlettered];
             }
 
             // Like the "Status" column of Disk Management: Boot, Page File, Crash Dump, Active, partition kind.
@@ -123,7 +130,7 @@ public static class DiskService
         {
             var scope = new ManagementScope(@"\\.\root\Microsoft\Windows\Storage");
             using var searcher = new ManagementObjectSearcher(scope, new ObjectQuery(
-                "SELECT PartitionNumber, DriveLetter, Offset, Size, IsBoot, IsActive, IsHidden, IsReadOnly, GptType, MbrType " +
+                "SELECT PartitionNumber, DriveLetter, Offset, Size, IsBoot, IsActive, IsHidden, IsReadOnly, GptType, MbrType, AccessPaths " +
                 $"FROM MSFT_Partition WHERE DiskNumber = {diskIndex}"));
             foreach (var obj in searcher.Get())
             {
@@ -135,7 +142,8 @@ public static class DiskService
                     char.IsAsciiLetter(letter) ? char.ToUpperInvariant(letter) : null,
                     partition["IsBoot"] is true, partition["IsActive"] is true,
                     partition["IsHidden"] is true, partition["IsReadOnly"] is true,
-                    KindOf(Text(partition["GptType"]), partition["MbrType"]));
+                    KindOf(Text(partition["GptType"]), partition["MbrType"]),
+                    partition["AccessPaths"] as string[]);
             }
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException or FormatException)
@@ -147,7 +155,18 @@ public static class DiskService
 
     private sealed record StoragePartition(
         ulong Offset, ulong Size,
-        int Number, char? Letter, bool IsBoot, bool IsActive, bool IsHidden, bool IsReadOnly, string? Kind);
+        int Number, char? Letter, bool IsBoot, bool IsActive, bool IsHidden, bool IsReadOnly, string? Kind,
+        string[]? AccessPaths);
+
+    /// <summary>
+    /// The volume GUID path ("\\?\Volume{guid}\") among a partition's access paths (MSFT_Partition.AccessPaths also
+    /// lists drive letters and folder mount points), or null when Windows mounted no volume on it.
+    /// </summary>
+    public static string? VolumeGuidPath(IEnumerable<string?>? accessPaths)
+    {
+        var path = accessPaths?.FirstOrDefault(p => p is not null && p.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase));
+        return path is null ? null : path.EndsWith('\\') ? path : path + '\\';
+    }
 
     private static string? KindOf(string? gptType, object? mbrType)
     {
@@ -284,6 +303,39 @@ public static class DiskService
             list.Add(info);
         }
 
+        return map;
+    }
+
+    /// <summary>
+    /// Volumes with a recognized file system, keyed by volume GUID path, including the ones without a drive letter
+    /// (Win32_LogicalDisk only lists lettered volumes). Best effort: an empty result keeps those partitions unknown.
+    /// </summary>
+    private static Dictionary<string, LogicalVolumeInfo> MapVolumesByGuid()
+    {
+        var map = new Dictionary<string, LogicalVolumeInfo>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT DeviceID, Label, FileSystem, Capacity, FreeSpace FROM Win32_Volume");
+            foreach (var obj in searcher.Get())
+            {
+                using var volume = (ManagementObject)obj;
+                // No file system (RAW, ext4, a locked BitLocker volume...): Windows cannot report its usage.
+                if (VolumeGuidPath([Text(volume["DeviceID"])]) is not { } path || Text(volume["FileSystem"]) is not { } fileSystem)
+                    continue;
+                map[path] = new LogicalVolumeInfo(
+                    Letter: "",
+                    Label: Text(volume["Label"]),
+                    FileSystem: fileSystem,
+                    Size: Number(volume["Capacity"]),
+                    Free: Number(volume["FreeSpace"]),
+                    VolumePath: path);
+            }
+        }
+        catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException or FormatException)
+        {
+            map.Clear();
+        }
         return map;
     }
 

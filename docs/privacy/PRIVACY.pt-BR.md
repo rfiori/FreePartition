@@ -2,7 +2,7 @@
 
 [English](PRIVACY.md) · [Español](PRIVACY.es.md) · **Português (Brasil)**
 
-**FreePartition** — última atualização: 29 de outubro de 2026
+**FreePartition** — última atualização: 11 de novembro de 2026
 
 O FreePartition é um gerenciador de partições de disco gratuito e de código aberto para
 Windows. Esta política explica o que o aplicativo faz, e o que não faz, com as suas informações.
@@ -10,7 +10,8 @@ Windows. Esta política explica o que o aplicativo faz, e o que não faz, com as
 ## Resumo
 
 O FreePartition não coleta, transmite nem vende dados pessoais. Ele funciona inteiramente no
-seu computador e não possui recursos de rede próprios.
+seu computador. Seu único recurso de rede é uma verificação opcional de nova versão no GitHub
+(veja [Acesso à rede](#acesso-à-rede)).
 
 ## Informações que coletamos
 
@@ -49,9 +50,22 @@ selecionar, em outra unidade.
 
 ## Acesso à rede
 
-O FreePartition não faz conexões de rede. A única ação externa é abrir um link ou uma pasta
-(como os links da janela Sobre ou o local do log) com o programa padrão do Windows quando você
-clica. Esses sites são regidos por suas próprias políticas de privacidade.
+A única conexão de rede do FreePartition é a **verificação de atualização**. Ao iniciar (e quando
+você escolhe **Ajuda > Check for updates**), o app consulta `api.github.com` para saber qual é a
+versão mais recente do projeto. A requisição não leva dados pessoais, apenas o que qualquer
+requisição web leva: seu endereço IP e o nome do app `FreePartition-Updater`. O GitHub pode
+registrá-la conforme a sua
+[declaração de privacidade](https://docs.github.com/pt/site-policy/privacy-policies/github-general-privacy-statement).
+
+- Você pode desligar a verificação ao iniciar em **Help > Check for updates on startup**. A escolha
+  fica salva em `settings.json`, ao lado do `FreePartition.exe` (ou em `%LocalAppData%\FreePartition`).
+- Nada é baixado nem instalado até você clicar em **Update now**. O download vem das releases do
+  projeto no GitHub e tem o SHA-256 conferido antes da instalação.
+- A verificação não é feita no WinPE.
+
+A outra ação externa é abrir um link ou uma pasta (como os links da janela Sobre ou o local do
+log) com o programa padrão do Windows quando você clica. Esses sites são regidos por suas próprias
+políticas de privacidade.
 
 ## Direitos de administrador
 

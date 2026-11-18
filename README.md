@@ -40,6 +40,9 @@ Requires Windows 10 / 11 (64-bit). To copy Windows to another disk you also need
   then **Run anyway**.
 - **Check your download** (optional): run `Get-FileHash <file>.zip -Algorithm SHA256` in PowerShell and compare the
   result with `SHA256SUMS.txt`, attached to the same release.
+- **Updates:** at startup FreePartition checks GitHub for a newer release and offers it. **Update now** downloads the
+  same kind of zip you use, checks it against `SHA256SUMS.txt` and restarts the app. It never updates while operations
+  are running or queued. Turn the startup check off, or check by hand, in the **Help** menu.
 
 ## Table of contents
 
@@ -51,7 +54,6 @@ Requires Windows 10 / 11 (64-bit). To copy Windows to another disk you also need
 - [How to try it safely (test VHD)](#how-to-try-it-safely-test-vhd)
 - [How recovery works](#how-recovery-works)
 - [Safety](#safety)
-- [Roadmap](#roadmap)
 - [Known limitations](#known-limitations)
 - [Build from source](#build-from-source)
 - [Contributing](#contributing)
@@ -59,8 +61,9 @@ Requires Windows 10 / 11 (64-bit). To copy Windows to another disk you also need
 
 ## File recovery
 
-**Tools → Recover deleted files** is the main feature of FreePartition. Pick a drive and scan it; the source is only
-ever read, and files are always recovered to **another** drive.
+**Tools → Recover deleted files** is the main feature of FreePartition. Pick a drive, or a partition without a drive
+letter (listed as "Disk 2, partition 5 …"), and scan it; the source is only ever read, and files are always recovered
+to **another** drive.
 
 | Step | What you get |
 | --- | --- |
@@ -95,7 +98,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | **Properties** | Usage bar (used/free, and on a drive with Windows the estimated share of the operating system, programs and users) plus partition, NTFS volume and disk details. |
 | **Verify wipe** | Reads a whole volume (also a RAW one) and checks that nothing is left after a wipe: counts the bytes that are not zero, shows where the first one is with a hex dump and names any NTFS / exFAT / FAT32 signature that survived. Verdict: all zeros, random-looking, residual data or inconclusive. |
 | **Cluster map** | Draws a whole volume (also a RAW one) as a grid. Each square is classified as zero, data or unreadable from three 4 KB samples; clicking a square shows its byte range, its NTFS clusters and a hex dump. |
-| **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS, with preview and a thumbnail gallery (see [File recovery](#file-recovery)). |
+| **Recover files** | Looks for deleted files on the selected NTFS drive, or carves files by signature on FAT/exFAT and damaged NTFS, with preview and a thumbnail gallery (see [File recovery](#file-recovery)). Also works on partitions without a drive letter. |
 | **Recover partitions** | Looks in the unallocated space of the selected disk for NTFS, FAT32 and exFAT partitions missing from the partition table (read-only) and queues the ones you check to be put back. Only the table is written, never the files (see below). |
 
 **Create**
@@ -120,7 +123,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 
 | Operation | What it does |
 | --- | --- |
-| **Change label** | Changes the volume label. |
+| **Change label** | Changes the volume label (also on a partition without a drive letter). |
 | **Change letter** | Changes the drive letter. |
 | **Convert FAT32 / NTFS** | Converts the selected partition between FAT32 and NTFS, keeping its files. |
 | **Convert MBR / GPT** | Converts the selected disk between MBR and GPT, keeping every partition and its files: only the partition table is rewritten (see below). |
@@ -132,14 +135,14 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 
 | Operation | What it does |
 | --- | --- |
-| **Check for errors** | Checks the selected volume for file system errors with `chkdsk` (scan or repair). |
+| **Check for errors** | Checks the selected volume for file system errors with `chkdsk` (scan or repair), also on a partition without a drive letter. |
 
 **Destructive**
 
 | Operation | What it does |
 | --- | --- |
-| **Format partition** | Formats the partition as NTFS, FAT32 or exFAT. Erases all data on it. |
-| **Delete partition** | Deletes the partition. Erases all data on it. |
+| **Format partition** | Formats the partition as NTFS, FAT32 or exFAT. Erases all data on it. Also works on a partition without a drive letter. |
+| **Delete partition** | Deletes the partition. Erases all data on it. Also works on a partition without a drive letter. |
 | **Wipe free space** | Overwrites the free space of the selected drive so deleted files cannot be recovered. The files are kept. |
 | **Wipe partition** | Overwrites every sector of the selected partition so nothing on it can be recovered. |
 | **Wipe disk** | Deletes every partition of the selected disk and overwrites all of its sectors. |
@@ -150,9 +153,9 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 | --- | --- |
 | **Recover deleted files** (Tools menu and toolbar) | MFT scan of NTFS volumes: original path, recovery chance (cross-checked against `$Bitmap`, and marked *Overwritten (zeros)* when the start, middle and end of the file are all zeros, as after a wipe; those files cannot be checked for recovery) and recovery to another drive. Results are a folder tree with check boxes that recreates the original folders, with filters by name, type, size and modified date, a read-only preview (image, text or hex dump) of the selected file and a **Thumbnails…** gallery of all the images (click, drag or Shift+click to check them). Also carves files by signature. Shows a TRIM warning when the drive is on an SSD. |
 | **Disk health (S.M.A.R.T.)** (Tools menu and toolbar) | Read-only report per disk: overall level, temperature, power-on time and wear, with the ATA S.M.A.R.T. attribute table or the NVMe health log. |
-| **Clone Windows to another disk** (Tools menu and toolbar) | Copies an installed Windows to another disk so the new disk boots on its own: initializes the destination, creates the boot partition, copies Windows and the recovery partition and writes the boot files. Runs only from the [WinPE build](tools/winpe/README.md), where the source Windows is not in use; in a normal Windows it shows how to download the WinPE ISO from the [releases page](https://github.com/rfiori/FreePartition/releases/latest) and make the bootable USB drive (see [below](#clone-windows-to-another-disk)). |
+| **Clone Windows to another disk** (Tools menu and toolbar) | Copies an installed Windows to another disk so the new disk boots on its own: initializes the destination, creates the boot partition, copies Windows and the recovery partition and writes the boot files. Runs only from the WinPE build (a bootable USB drive), where the source Windows is not in use; in a normal Windows it shows how to download the WinPE ISO from the [releases page](https://github.com/rfiori/FreePartition/releases/latest) and make the bootable USB drive (see [below](#clone-windows-to-another-disk)). |
 
-Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
+Not implemented yet: SSD firmware Secure Erase.
 
 ## Clone Windows to another disk
 
@@ -161,12 +164,12 @@ Not implemented yet: SSD firmware Secure Erase. See the [Roadmap](#roadmap).
 > [Português (Brasil)](docs/clone-windows/GUIDE.pt-BR.md).
 
 Windows cannot be copied consistently while it is running, so the clone runs only when FreePartition runs from
-the [WinPE build](tools/winpe/README.md) (the app detects it). In a normal Windows the same button opens a window that
+the WinPE build (the app detects it). In a normal Windows the same button opens a window that
 explains how to get there:
 
 1. Download the ready-made WinPE image:
    **`FreePartition-WinPE.iso`**, attached to the [latest release](https://github.com/rfiori/FreePartition/releases/latest)
-   (or build it yourself with [`build-winpe.ps1`](tools/winpe/README.md)).
+   (or build it yourself with [`build-winpe.ps1`](tools/winpe/build-winpe.ps1)).
 2. Write it to a USB drive of 4 GB or more (it is erased): with [Rufus](https://rufus.ie), partition scheme MBR
    (target BIOS or UEFI) and file system FAT32; with [Ventoy](https://www.ventoy.net), just copy the ISO to the drive.
 3. Connect the destination disk, shut Windows down completely and start the PC from the USB drive (boot menu, usually
@@ -191,8 +194,6 @@ A single window guides you and shows each step with its status (*OK*, *Skipped* 
   from the copy).
 - A GPT source needs the computer in UEFI mode, an MBR source in BIOS (legacy) mode.
 - To test the result, disconnect the old disk and start from the new one.
-
-Details and requirements: [tools/winpe/README.md](tools/winpe/README.md).
 
 ## Screenshots
 
@@ -299,8 +300,12 @@ The guarantees the code is built around:
 - The **Windows drive** is protected: no format, letter change, move, clone or wipe. *Wipe disk* and *Convert MBR / GPT*
   are also refused on any disk holding Windows or the app itself (checked by the queue, by the script and again right
   before writing, failing closed if the disk cannot be identified).
-- PowerShell scripts are generated only from validated values (drive letter, numeric size, file system from a closed
-  list, label with restricted characters) — no command injection.
+- **Partitions without a drive letter** are addressed by disk number, partition number and offset. The script checks the
+  offset right before acting, so a partition renumbered by an earlier queued step is never touched by mistake, and
+  **Format**, **Delete** and **Repair** refuse one that is boot or system. The app also refuses the ones marked Boot,
+  Active, Page File, Crash Dump, EFI or Reserved.
+- PowerShell scripts are generated only from validated values (drive letter, disk and partition numbers, numeric size,
+  file system from a closed list, label with restricted characters) — no command injection.
 - The few operations that write below the cmdlet level (**Move**, **Clone**, **Restore partition**, **Convert MBR / GPT**
   and the **wipes**) only run after **Apply**, check the partition table first and write only where they must: inside the
   partition's own locked volume, into free space of the disk, or the partition table sectors. Clone and Restore write the
@@ -310,55 +315,6 @@ The guarantees the code is built around:
 - The queue stops at the first failure; the remaining operations stay pending.
 - Every event is logged to `Log\operations.log` next to the executable (or `%LocalAppData%\FreePartition\operations.log` if that folder is not writable).
 
-## Roadmap
-
-**Basic**
-- ✅ List disks, partitions and volumes
-- ✅ Format (NTFS, FAT32, exFAT)
-- ✅ Shrink and extend partition
-- ✅ Change drive letter and label
-- ✅ Create and delete partition
-- ✅ Initialize disk (MBR/GPT)
-- ✅ Set active partition, hide/show
-- ✅ Explore partition and Properties (usage breakdown; partition, volume and disk details)
-- ✅ Disk health (S.M.A.R.T. for ATA disks, health log for NVMe)
-
-**Intermediate**
-- ✅ Pending-operations queue (Apply/Undo)
-- ✅ Operations log
-- ✅ Merge and split partitions
-- ✅ Convert FAT32 ↔ NTFS without data loss
-- ✅ Check for errors (`chkdsk`; scan or repair)
-- ✅ Detect partitions not aligned to 4 KB (warning on the disk map and in Properties)
-- ✅ Align a partition to 1 MB (moves it to the nearest boundary; same risk as a move)
-- ✅ Wipe a partition, a whole disk or a drive's free space (zeros, verified zeros or random data)
-- ✅ Verify wipe (reads a whole volume and reports any data or file system signature left)
-- ✅ Cluster map (a volume drawn as a grid of zero, data and unreadable areas, with a hex dump per square)
-
-**Data recovery**
-- ✅ Find deleted files (MFT scan, NTFS)
-- ✅ Recovery chance estimate
-- ✅ Always recover to another disk
-- ✅ Filter by name
-- ✅ Filters by type, size and date; preview before recovering (image, text or hex dump)
-- ✅ File carving by signature (JPEG, PNG, PDF, DOCX…) for FAT/exFAT or a damaged MFT
-- ✅ Thumbnail gallery of recoverable images, paged, with click, drag and Shift+click selection
-- ✅ Application icon of recovered programs (EXE, DLL…) in the gallery and the preview
-- ✅ Recover lost partitions (NTFS, FAT32, exFAT by boot sector)
-- ✅ Explicit TRIM warning on SSD
-
-**Advanced (high risk: back up first)**
-- ✅ Move partition (same disk, into free space)
-- ✅ Clone partition (same or another disk, into unallocated space)
-- ✅ Convert MBR ↔ GPT without data loss (not the disk Windows boots from)
-- ✅ Clone Windows to another disk from WinPE, with boot files and recovery partition (verified with a Windows 7 32-bit MBR/BIOS disk in a VM and with a real UEFI/GPT Windows moved from a SATA SSD to an NVMe drive; both booted from the copy)
-- ✅ Bootable WinPE image (ISO or USB drive) that opens FreePartition, to edit the system disk offline; ready-made
-  ISO attached to each [release](https://github.com/rfiori/FreePartition/releases/latest) (experimental)
-- ✅ Step-by-step guide for moving Windows, with troubleshooting, in English, Spanish and Portuguese
-
-**Planned**
-- ⬜ SSD firmware Secure Erase
-
 ## Known limitations
 
 - **Names and folders need NTFS.** FAT/exFAT only have *file carving*; reading their directory entries is not implemented.
@@ -367,6 +323,11 @@ The guarantees the code is built around:
 - Files with an `$ATTRIBUTE_LIST` may appear incomplete; compressed or encrypted (EFS) files are "Unavailable";
   alternate data streams are ignored; parent sequence numbers are not validated, so paths of reused folders may be wrong.
 - On SSDs with TRIM, deleted data has usually already been discarded by the controller.
+- **Partitions without a drive letter**: their file system, used and free space are read through the volume GUID, which
+  Windows only creates for file systems it knows (NTFS, ReFS, FAT, exFAT). Others (ext4, RAW, a locked BitLocker volume)
+  show as *Unknown*. **Format**, **Delete**, **Change label**, **Check for errors**, **Recover files**, **Show
+  partition** and **Properties** work on them; Resize, Merge, Split, Wipe and the rest still need a drive letter, so
+  use **Show partition** first. Recovery scans them by their volume GUID, so it supports NTFS, FAT32 and exFAT only.
 - **Move / Align partition**: same disk only, MBR (without extended partitions) and GPT, destinations aligned to 4 KB, and
   the partition needs a drive letter. Align needs up to 1 MB of free space next to the partition. Boot-sector "hidden
   sectors" are not rewritten, so the app asks for confirmation on Boot, Active, Page File or Crash Dump partitions.
@@ -440,6 +401,6 @@ Issues and pull requests are welcome.
 MIT — see [LICENSE](LICENSE).
 
 Privacy policy: [English](docs/privacy/PRIVACY.md) · [Español](docs/privacy/PRIVACY.es.md) ·
-[Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data and makes no network connections.
+[Português (Brasil)](docs/privacy/PRIVACY.pt-BR.md). FreePartition collects no data. Its only network call is an optional check for a new version on GitHub (**Help > Check for updates on startup**).
 
 FreePartition is an independent project and is not affiliated with any company.

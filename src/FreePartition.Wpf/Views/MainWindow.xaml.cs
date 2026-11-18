@@ -10,6 +10,7 @@ using System.Windows.Media;
 using FreePartition.Core.Cloning;
 using FreePartition.Core.Disks;
 using FreePartition.Core.Operations;
+using FreePartition.Core.Updates;
 using FreePartition.Core.Util;
 
 namespace FreePartition.Wpf;
@@ -20,7 +21,9 @@ public sealed record PartitionRow(
     string Unused, string State, string Type,
     char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
     int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0,
-    IReadOnlyList<string>? Details = null, bool Reserved = false);
+    IReadOnlyList<string>? Details = null, bool Reserved = false,
+    ulong? VolumeSize = null,   // capacity of the volume when its usage is known (with or without a drive letter)
+    string? VolumePath = null);   // GUID path of a volume without a drive letter (what a scan opens it by)
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
@@ -32,6 +35,9 @@ public partial class MainWindow : Window
 {
     // Gaps smaller than this between partitions are alignment, not "unallocated".
     private const ulong UnallocatedThreshold = 8UL * 1024 * 1024;
+
+    // File system column of a partition that holds no volume Windows can read.
+    private const string UnknownFileSystem = "Unknown";
 
     // Used-space bar of the disk map (the border adds 2 to this height).
     private const double UsageBarHeight = 18;
@@ -50,6 +56,9 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _operationsCts;
     private IReadOnlyList<DiskInfo> _disks = [];
     private readonly bool _isWinPe;
+    private readonly string _currentVersion;
+    private readonly UpdateSettings _updateSettings = UpdateSettings.Load(UpdateSettings.DefaultPath);
+    private bool _updateCheckRunning;
 
     public MainWindow()
     {
@@ -71,6 +80,8 @@ public partial class MainWindow : Window
         int plus = version.IndexOf('+');
         if (plus > 0) version = version[..plus];
         TxtVersion.Text = $"v{version}";
+        _currentVersion = version;
+        MenuUpdateOnStartup.IsChecked = _updateSettings.CheckOnStartup;
     }
 
     private int _busyCount;
@@ -86,7 +97,73 @@ public partial class MainWindow : Window
     {
         RefreshPending();
         RefreshAvailableOperations();
+
+        // WinPE runs from a RAM disk (nothing would survive a restart) and usually has no network; debug builds are the dev's own.
+#if !DEBUG
+        if (_updateSettings.CheckOnStartup && !_isWinPe) _ = CheckForUpdateAsync(manual: false);
+#endif
         await LoadDisksAsync();
+    }
+
+    // ------------------------------------------------------------------ Updates
+
+    /// <summary>Why an update cannot start now: it restarts the app, so running or queued operations would be lost.</summary>
+    private string? UpdateBlockReason() =>
+        _operationsRunning ? "Disk operations are running. Wait until they finish, then update."
+        : _queue.Pending.Count > 0 ? "There are pending operations and they would be lost when FreePartition restarts. Apply or undo them, then update."
+        : null;
+
+    /// <summary>Asks GitHub for the latest release. The startup check is silent unless there is something to offer.</summary>
+    private async Task CheckForUpdateAsync(bool manual)
+    {
+        if (_updateCheckRunning) return;
+        if (_isWinPe)
+        {
+            if (manual) MessageBox.Show(this, "Updates are not available in WinPE.", "Check for updates", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _updateCheckRunning = true;
+        SetBusy(true);
+        try
+        {
+            using var http = UpdateService.CreateHttpClient();
+            http.Timeout = TimeSpan.FromSeconds(15);
+            bool dependent = UpdateService.IsFrameworkDependent(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
+            var release = await new UpdateService(http).CheckAsync(_currentVersion, dependent);
+
+            if (release is null)
+            {
+                if (manual) MessageBox.Show(this, $"You have the latest version (v{_currentVersion}).", "Check for updates",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // The startup check respects "Skip this version" and does not interrupt running operations.
+            if (!manual && (release.Tag == _updateSettings.SkippedVersion || _operationsRunning)) return;
+
+            new UpdateWindow(release, _currentVersion, _updateSettings, UpdateBlockReason) { Owner = this }.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            if (manual) MessageBox.Show(this, $"Could not check for updates.\n\n{ex.Message}", "Check for updates",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SetBusy(false);
+            _updateCheckRunning = false;
+        }
+    }
+
+    private async void MenuCheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdateAsync(manual: true);
+
+    private void MenuUpdateOnStartup_Click(object sender, RoutedEventArgs e)
+    {
+        _updateSettings.CheckOnStartup = MenuUpdateOnStartup.IsChecked;
+        if (!_updateSettings.Save(UpdateSettings.DefaultPath))
+            MessageBox.Show(this, "Could not save the setting. It applies only until you close FreePartition.", "Updates",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     // ------------------------------------------------------------------ Disks
@@ -158,8 +235,9 @@ public partial class MainWindow : Window
 
             if (partition.Volumes.Count == 0)
             {
-                rows.Add(new PartitionRow(title, $"Partition {partition.Index}", "", ByteFormatter.Format(partition.Size),
-                    "", "", state, type, null, null, partition.Size, 0, false, disk.Index, partition.Number, gpt,
+                // No volume Windows can read (unformatted, ext4, locked BitLocker...): say so instead of looking empty.
+                rows.Add(new PartitionRow(title, $"Partition {partition.Index}", UnknownFileSystem, ByteFormatter.Format(partition.Size),
+                    "Unknown", "Unknown", state, type, null, null, partition.Size, 0, false, disk.Index, partition.Number, gpt,
                     Offset: partition.Offset, Details: partition.Details));
             }
 
@@ -168,6 +246,8 @@ public partial class MainWindow : Window
                 char? letter = volume.Letter.Length > 0 && char.IsLetter(volume.Letter[0]) ? char.ToUpperInvariant(volume.Letter[0]) : null;
                 string name = letter is null ? $"Partition {partition.Index}"
                     : string.IsNullOrEmpty(volume.Label) ? $"{letter}:" : $"{letter}: {volume.Label}";
+                if (letter is null && !string.IsNullOrEmpty(volume.Label))
+                    name += $" {volume.Label}";
                 ulong used = volume.Size > volume.Free ? volume.Size - volume.Free : 0;
 
                 rows.Add(new PartitionRow(title, name, volume.FileSystem ?? "",
@@ -175,7 +255,9 @@ public partial class MainWindow : Window
                     WithPercent(volume.Free, volume.Size),
                     state,
                     type, letter, volume.Label, partition.Size, used, false, disk.Index, partition.Number, gpt,
-                    Offset: partition.Offset, Details: partition.Details));
+                    Offset: partition.Offset, Details: partition.Details,
+                    VolumeSize: letter is not null || volume.FileSystem is not null ? volume.Size : null,
+                    VolumePath: letter is null ? volume.VolumePath : null));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
@@ -279,9 +361,9 @@ public partial class MainWindow : Window
 
         if (!empty)
         {
-            // Used space as a rounded bar with the percentage inside. Without a volume (no drive letter) there is
+            // Used space as a rounded bar with the percentage inside. Without a readable volume there is
             // no usage to show, so the bar stays empty instead of claiming 0%.
-            bool hasUsage = part.Letter is not null;
+            bool hasUsage = part.VolumeSize is not null;
             double fraction = !hasUsage || part.Size == 0 ? 0 : Math.Clamp((double)part.UsedBytes / part.Size, 0, 1);
             var bar = new Grid();
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(fraction, 0.0001), GridUnitType.Star) });
@@ -434,6 +516,10 @@ public partial class MainWindow : Window
     private void RefreshAvailableOperations()
     {
         bool hasLetter = Selected is { Unallocated: false, Letter: not null };
+        // Format and Delete also work on a partition without a letter (addressed by disk and number); Label and
+        // Check need a volume Windows can read there.
+        bool hasPartition = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0 };
+        bool hasVolume = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0, VolumeSize: not null };
         OpResize.IsEnabled = hasLetter;
         OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
         OpSplit.IsEnabled = hasLetter;
@@ -441,23 +527,24 @@ public partial class MainWindow : Window
         OpMove.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot move
         OpAlign.IsEnabled = Selected is { Unallocated: false, PartitionNumber: > 0 } aligned
                             && PartitionAlignment.Classify(aligned.Offset) == AlignmentStatus.Misaligned;
-        OpLabel.IsEnabled = hasLetter;
+        OpLabel.IsEnabled = hasVolume;
         OpLetter.IsEnabled = hasLetter;
-        OpFormat.IsEnabled = hasLetter;
+        OpFormat.IsEnabled = hasPartition;
         OpConvert.IsEnabled = hasLetter && Selected is { FileSystem: "FAT32" or "NTFS" };
         OpConvertStyle.IsEnabled = Selected is not null;   // any row of the disk; it explains why a disk cannot be converted
-        OpDelete.IsEnabled = hasLetter;
+        OpDelete.IsEnabled = hasPartition;
         OpWipe.IsEnabled = hasLetter && Selected is { PartitionNumber: > 0 };
         OpWipeFree.IsEnabled = hasLetter;
         OpWipeDisk.IsEnabled = Selected is not null;   // any row of the disk; it explains why a disk cannot be wiped
         OpCreate.IsEnabled = Selected is { Unallocated: true, Uninitialized: false };
         OpInitialize.IsEnabled = Selected is { Unallocated: true, Uninitialized: true };
-        OpCheck.IsEnabled = hasLetter;
+        OpCheck.IsEnabled = hasVolume;
         OpActive.IsEnabled = Selected is { Unallocated: false, Letter: not null, Gpt: false, PartitionNumber: > 0 };
         OpHide.IsEnabled = hasLetter;
         OpShow.IsEnabled = Selected is { Unallocated: false, Letter: null, PartitionNumber: > 0 };
         OpExplore.IsEnabled = hasLetter;
-        OpRecover.IsEnabled = hasLetter;
+        OpRecover.IsEnabled = hasLetter || Selected is { Unallocated: false, VolumePath: not null } unlettered
+                              && RecoveryWindow.CanScan(unlettered.FileSystem);
         OpRecoverPartitions.IsEnabled = _disks.Count > 0;   // the window lets you pick the disk
         OpProperties.IsEnabled = Selected is { Unallocated: false };
         OpVerifyWipe.IsEnabled = hasLetter;
@@ -876,9 +963,10 @@ public partial class MainWindow : Window
     }
 
     private void OpLabel_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Change label",
+        AddPartitionOperation("Change label",
             [new DialogField("New label:", Selected?.Label ?? "")],
-            (letter, v) => new ChangeVolumeLabel(letter, v[0]));
+            (letter, target, v) => new ChangeVolumeLabel(letter, v[0], target),
+            needsVolume: true);
 
     private const string AutomaticLetter = "(automatic)";
 
@@ -911,11 +999,11 @@ public partial class MainWindow : Window
             });
 
     private void OpFormat_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Format partition",
+        AddPartitionOperation("Format partition",
             [new DialogField("File system:", "NTFS", Enum.GetNames<FileSystemFormat>()),
              new DialogField("Label:", Selected?.Label ?? "")],
-            (letter, v) => new FormatVolume(letter, ConvertFileSystem(v[0]), v[1]),
-            "Formatting ERASES all data on the drive.");
+            (letter, target, v) => new FormatVolume(letter, ConvertFileSystem(v[0]), v[1], target),
+            "Formatting ERASES all data on the drive.", erases: true);
 
     private void OpConvert_Click(object sender, RoutedEventArgs e)
     {
@@ -1027,9 +1115,9 @@ public partial class MainWindow : Window
     }
 
     private void OpDelete_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Delete partition", [],
-            (letter, _) => new DeletePartition(letter),
-            "Deleting ERASES all data on the drive.");
+        AddPartitionOperation("Delete partition", [],
+            (letter, target, _) => new DeletePartition(letter, target),
+            "Deleting ERASES all data on the drive.", erases: true);
 
     // ------------------------------------------------------------------ Wipe
 
@@ -1140,10 +1228,11 @@ public partial class MainWindow : Window
     private const string ScanAndRepair = "Scan and repair";
 
     private void OpCheck_Click(object sender, RoutedEventArgs e) =>
-        AddWithDialog("Check for errors",
+        AddPartitionOperation("Check for errors",
             [new DialogField("Mode:", ScanOnly, [ScanOnly, ScanAndRepair])],
-            (letter, v) => new CheckVolume(letter, Repair: v[0] == ScanAndRepair),
-            "Repairing takes the volume offline and is not allowed on the Windows drive.");
+            (letter, target, v) => new CheckVolume(letter, Repair: v[0] == ScanAndRepair, Partition: target),
+            "Repairing takes the volume offline and is not allowed on the Windows drive.",
+            needsVolume: true);
 
     private void OpActive_Click(object sender, RoutedEventArgs e) =>
         AddWithDialog("Set active partition", [],
@@ -1176,6 +1265,67 @@ public partial class MainWindow : Window
             _queue.Add(new ShowPartition(row.DiskIndex, row.PartitionNumber, letter));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Why a partition without a drive letter must not be erased, or null when it may be. The letter-based checks
+    /// (Windows drive) cannot see these, so the Status roles of the row are used; the generated script also refuses
+    /// a partition that is boot or system.
+    /// </summary>
+    private static string? ProtectedReason(PartitionRow row)
+    {
+        var role = row.Details?.FirstOrDefault(d =>
+            d is "Boot" or "Page File" or "Crash Dump" or "Active" or "EFI System Partition" or "Reserved Partition");
+        return role is null ? null : $"This partition is marked \"{role}\" (it holds Windows or boot files), so it cannot be changed here.";
+    }
+
+    /// <summary>
+    /// Like <see cref="AddWithDialog"/> for operations that also work on a partition without a drive letter, which
+    /// is then addressed by disk number, partition number and offset. <paramref name="needsVolume"/>: the operation
+    /// needs a file system Windows can read; <paramref name="erases"/>: refuse the partitions that hold the boot files.
+    /// </summary>
+    private void AddPartitionOperation(string title, IReadOnlyList<DialogField> fields,
+        Func<char, PartitionTarget?, string[], DiskOperation> create, string? warning = null,
+        bool needsVolume = false, bool erases = false)
+    {
+        if (Selected is not { Unallocated: false } row) return;
+
+        PartitionTarget? target = null;
+        string subject;
+        if (row.Letter is { } letter)
+        {
+            subject = $"Drive {letter}:";
+        }
+        else
+        {
+            if (row.PartitionNumber < 1) return;
+            if (needsVolume && row.VolumeSize is null)
+            {
+                MessageBox.Show(this, "Windows cannot read a file system on this partition, so this does not apply to it.",
+                    title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (erases && ProtectedReason(row) is { } reason)
+            {
+                MessageBox.Show(this, reason, title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            target = new PartitionTarget(row.DiskIndex, row.PartitionNumber, (long)row.Offset);
+            subject = $"Disk {row.DiskIndex}, partition {row.PartitionNumber} ({row.Capacity}" +
+                      (string.IsNullOrEmpty(row.FileSystem) || row.FileSystem == UnknownFileSystem ? ")" : $", {row.FileSystem})");
+        }
+
+        var dialog = new ParametersDialog(title, warning is null ? subject : $"{subject} — {warning}", fields) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            _queue.Add(create(row.Letter ?? DiskOperation.NoLetter, target, dialog.Values));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException)
         {
             MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -1424,7 +1574,14 @@ public partial class MainWindow : Window
 
     private void BtnRecoverFiles_Click(object sender, RoutedEventArgs e)
     {
-        var window = new RecoveryWindow(Selected?.Letter) { Owner = this };
+        var initial = Selected switch
+        {
+            { Letter: { } letter } => new RecoverySource(letter.ToString(), $"{letter}:", null),
+            { Unallocated: false, VolumePath: { } path } row when RecoveryWindow.CanScan(row.FileSystem) =>
+                RecoverySource.ForPartition(path, row.DiskIndex, row.PartitionNumber, row.Label, row.FileSystem, row.Capacity),
+            _ => null
+        };
+        var window = new RecoveryWindow(initial) { Owner = this };
         window.Show();
     }
 
