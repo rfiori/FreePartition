@@ -22,7 +22,8 @@ public sealed record PartitionRow(
     char? Letter, string? Label, ulong Size, ulong UsedBytes, bool Unallocated, int DiskIndex,
     int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0,
     IReadOnlyList<string>? Details = null, bool Reserved = false,
-    ulong? VolumeSize = null);   // capacity of the volume when its usage is known (with or without a drive letter)
+    ulong? VolumeSize = null,   // capacity of the volume when its usage is known (with or without a drive letter)
+    string? VolumePath = null);   // GUID path of a volume without a drive letter (what a scan opens it by)
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
@@ -255,7 +256,8 @@ public partial class MainWindow : Window
                     state,
                     type, letter, volume.Label, partition.Size, used, false, disk.Index, partition.Number, gpt,
                     Offset: partition.Offset, Details: partition.Details,
-                    VolumeSize: letter is not null || volume.FileSystem is not null ? volume.Size : null));
+                    VolumeSize: letter is not null || volume.FileSystem is not null ? volume.Size : null,
+                    VolumePath: letter is null ? volume.VolumePath : null));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
@@ -541,7 +543,8 @@ public partial class MainWindow : Window
         OpHide.IsEnabled = hasLetter;
         OpShow.IsEnabled = Selected is { Unallocated: false, Letter: null, PartitionNumber: > 0 };
         OpExplore.IsEnabled = hasLetter;
-        OpRecover.IsEnabled = hasLetter;
+        OpRecover.IsEnabled = hasLetter || Selected is { Unallocated: false, VolumePath: not null } unlettered
+                              && RecoveryWindow.CanScan(unlettered.FileSystem);
         OpRecoverPartitions.IsEnabled = _disks.Count > 0;   // the window lets you pick the disk
         OpProperties.IsEnabled = Selected is { Unallocated: false };
         OpVerifyWipe.IsEnabled = hasLetter;
@@ -1571,7 +1574,14 @@ public partial class MainWindow : Window
 
     private void BtnRecoverFiles_Click(object sender, RoutedEventArgs e)
     {
-        var window = new RecoveryWindow(Selected?.Letter) { Owner = this };
+        var initial = Selected switch
+        {
+            { Letter: { } letter } => new RecoverySource(letter.ToString(), $"{letter}:", null),
+            { Unallocated: false, VolumePath: { } path } row when RecoveryWindow.CanScan(row.FileSystem) =>
+                RecoverySource.ForPartition(path, row.DiskIndex, row.PartitionNumber, row.Label, row.FileSystem, row.Capacity),
+            _ => null
+        };
+        var window = new RecoveryWindow(initial) { Owner = this };
         window.Show();
     }
 

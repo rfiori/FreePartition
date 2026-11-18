@@ -328,7 +328,8 @@ public static class DiskService
                     Label: Text(volume["Label"]),
                     FileSystem: fileSystem,
                     Size: Number(volume["Capacity"]),
-                    Free: Number(volume["FreeSpace"]));
+                    Free: Number(volume["FreeSpace"]),
+                    VolumePath: path);
             }
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or InvalidCastException or FormatException)

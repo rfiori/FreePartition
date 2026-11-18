@@ -6,7 +6,8 @@ public sealed record LogicalVolumeInfo(
     string? Label,
     string? FileSystem,
     ulong Size,
-    ulong Free);
+    ulong Free,
+    string? VolumePath = null);   // "\\?\Volume{guid}\", set for a volume without a drive letter (what the raw volume is opened by)
 
 public sealed record PartitionInfo(
     int Index,

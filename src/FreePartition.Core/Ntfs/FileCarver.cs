@@ -46,6 +46,9 @@ public sealed class FileCarver
     /// <summary>Only used to show a percentage: the scan itself stops when the volume does.</summary>
     private static long ExpectedLength(string drive)
     {
+        if (VolumeNames.IsGuidPath(drive))
+            return VolumeNames.TotalBytes(drive);
+
         try
         {
             return new DriveInfo(drive.Trim().TrimEnd('\\', ':')).TotalSize;
