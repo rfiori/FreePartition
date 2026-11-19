@@ -665,7 +665,6 @@ public partial class MainWindow : Window
         OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
         OpSplit.IsEnabled = hasLetter;
         OpClone.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot be cloned
-        OpMove.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot move
         OpAlign.IsEnabled = Selected is { Unallocated: false, PartitionNumber: > 0 } aligned
                             && PartitionAlignment.Classify(aligned.Offset) == AlignmentStatus.Misaligned;
         OpLabel.IsEnabled = hasVolume;
@@ -692,8 +691,14 @@ public partial class MainWindow : Window
         OpClusterMap.IsEnabled = hasLetter;
     }
 
-    private async void OpResize_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Resize/Move partition: one dialog that shrinks, extends and moves the partition. Windows only resizes a
+    /// partition at its end and the move keeps the size, so a change of both is queued as two operations, in the
+    /// order that copies less and always has room: shrink then move, or move then extend.
+    /// </summary>
+    private async void OpResizeMove_Click(object sender, RoutedEventArgs e)
     {
+        const string title = "Resize/Move partition";
         if (Selected is not { Unallocated: false, Letter: { } letter } row) return;
 
         // Room to extend = unallocated space right after the partition on the same disk.
@@ -718,17 +723,96 @@ public partial class MainWindow : Window
             SetBusy(false);
         }
 
-        var dialog = new ResizeDialog(letter, row.Size, min, max, row.UsedBytes) { Owner = this };
-        if (dialog.ShowDialog() != true) return;
+        long start = (long)row.Offset, size = (long)row.Size;
+        long regionStart = start, regionEnd = start + (long)max;
 
+        // A partition that may move slides within the free space around it, inside the disk's usable area.
+        string? moveBlocked = MoveBlockedReason(row);
+        if (moveBlocked is null)
+        {
+            var (layout, error) = await LoadLayoutAsync(row.DiskIndex);
+            if (layout is null)
+            {
+                moveBlocked = $"{error} It can still be resized at its end.";
+            }
+            else
+            {
+                var home = FreeRegionAround(row);
+                regionStart = Math.Max(home.Start, layout.UsableStart);
+                regionEnd = Math.Max(Math.Min(home.End, layout.UsableEnd), start + size);
+            }
+        }
+        else
+        {
+            moveBlocked += " It can still be resized at its end.";
+        }
+
+        var dialog = new ResizeMoveDialog(letter, start, size, regionStart, regionEnd, (long)min, (long)row.UsedBytes, moveBlocked)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() != true) return;
+        if (dialog.Moved && !ConfirmMoveBootRoles(row, letter)) return;
+
+        long newStart = dialog.NewStart, newSize = dialog.NewSize;
+        var operations = new List<DiskOperation>();
+        if (!dialog.Moved)
+        {
+            operations.Add(new ResizePartition(letter, dialog.ExtendsToMaximum ? null : newSize));
+        }
+        else if (newSize <= size)
+        {
+            // Shrink first (Windows moves the files out of the end), then move the smaller partition.
+            if (newSize < size) operations.Add(new ResizePartition(letter, newSize));
+            operations.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, start, newSize, newStart));
+        }
+        else
+        {
+            // Move first, then grow into the free space left behind; the extend waits for Windows to remount the drive.
+            operations.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, start, size, newStart));
+            operations.Add(new ResizePartition(letter, newSize, WaitForDrive: true));
+        }
+
+        // All or nothing: a half-queued change would leave the partition somewhere the user did not ask for.
+        var added = new List<DiskOperation>();
         try
         {
-            _queue.Add(new ResizePartition(letter, dialog.NewSizeBytes));
+            foreach (var operation in operations)
+            {
+                _queue.Add(operation);
+                added.Add(operation);
+            }
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+            foreach (var operation in added) _queue.Remove(operation);
+            MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>
+    /// The free space around a partition, counting its own space as free (it is vacated while it moves). Two free
+    /// rows only merge when nothing sits between them.
+    /// </summary>
+    private (long Start, long End) FreeRegionAround(PartitionRow row)
+    {
+        var regions = new List<(long Start, long End)>();
+        bool previousFree = false;
+        foreach (var r in DisksGrid.Items.OfType<PartitionRow>()
+                     .Where(r => r.DiskIndex == row.DiskIndex && !r.Uninitialized).OrderBy(r => r.Offset))
+        {
+            if (!r.Unallocated && !ReferenceEquals(r, row))
+            {
+                previousFree = false;
+                continue;
+            }
+            long start = (long)r.Offset, end = (long)(r.Offset + r.Size);
+            if (previousFree) regions[^1] = (regions[^1].Start, end);
+            else regions.Add((start, end));
+            previousFree = true;
+        }
+        long current = (long)row.Offset;
+        return regions.FirstOrDefault(r => r.Start <= current && current < r.End);
     }
 
     /// <summary>The partition right before the selected one on the same disk, if it has a drive letter.</summary>
@@ -827,68 +911,81 @@ public partial class MainWindow : Window
     private void ShowMoveRefused(string reason) =>
         MessageBox.Show(this, reason, "Move partition", MessageBoxButton.OK, MessageBoxImage.Information);
 
+    /// <summary>Why a partition can never be moved (no letter, the Windows drive...), or null when it may move.</summary>
+    private string? MoveBlockedReason(PartitionRow row)
+    {
+        if (row.Letter is not { } letter)
+            return "This partition has no drive letter, so it cannot be moved. Use \"Show partition\" to give it a letter first.";
+        if (letter == _systemLetter)
+            return $"{letter}: is the Windows drive. Moving it could make Windows impossible to start, so it is not allowed.";
+        if (row.PartitionNumber < 1)
+            return $"Windows does not expose {letter}: as a partition that can be moved.";
+        return null;
+    }
+
+    /// <summary>
+    /// Boot/active partitions (another Windows install, a boot manager) read their own position from the boot
+    /// sector, which a move does not rewrite: moving them can leave that system unable to start. Asks first.
+    /// </summary>
+    private bool ConfirmMoveBootRoles(PartitionRow row, char letter)
+    {
+        var bootRoles = row.Details?.Where(d => d is "Boot" or "Active" or "Page File" or "Crash Dump").ToList();
+        if (bootRoles is not { Count: > 0 }) return true;
+
+        var answer = MessageBox.Show(this,
+            $"{letter}: is marked as {string.Join(", ", bootRoles)}.\n\n" +
+            "This partition is used to start or run Windows. Moving it does not update its boot sector, so the " +
+            "system that boots from it may fail to start, and a drive in use cannot be locked anyway.\n\n" +
+            "Only continue if you are sure this is just a data partition. Move it anyway?",
+            "Move partition", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        return answer == MessageBoxResult.Yes;
+    }
+
     /// <summary>
     /// Explains up front why a partition cannot be moved, instead of failing later while applying.
     /// Returns its drive letter when the move may go ahead.
     /// </summary>
     private char? CheckCanMove(PartitionRow row)
     {
-        if (row.Letter is not { } letter)
+        if (MoveBlockedReason(row) is { } reason)
         {
-            ShowMoveRefused("This partition has no drive letter, so it cannot be moved. " +
-                            "Use \"Show partition\" to give it a letter first.");
+            ShowMoveRefused(reason);
             return null;
         }
-        if (letter == _systemLetter)
-        {
-            ShowMoveRefused($"{letter}: is the Windows drive. Moving it could make Windows impossible to start, so it is not allowed.");
-            return null;
-        }
-        if (row.PartitionNumber < 1)
-        {
-            ShowMoveRefused($"Windows does not expose {letter}: as a partition that can be moved.");
-            return null;
-        }
-
-        // Boot/active partitions (another Windows install, a boot manager) read their own position from the boot
-        // sector, which a move does not rewrite: moving them can leave that system unable to start.
-        var bootRoles = row.Details?.Where(d => d is "Boot" or "Active" or "Page File" or "Crash Dump").ToList();
-        if (bootRoles is { Count: > 0 })
-        {
-            var answer = MessageBox.Show(this,
-                $"{letter}: is marked as {string.Join(", ", bootRoles)}.\n\n" +
-                "This partition is used to start or run Windows. Moving it does not update its boot sector, so the " +
-                "system that boots from it may fail to start, and a drive in use cannot be locked anyway.\n\n" +
-                "Only continue if you are sure this is just a data partition. Move it anyway?",
-                "Move partition", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-            if (answer != MessageBoxResult.Yes) return null;
-        }
-        return letter;
+        char letter = row.Letter!.Value;
+        return ConfirmMoveBootRoles(row, letter) ? letter : null;
     }
 
-    /// <summary>Reads the partition table (read-only), or explains why the disk cannot be rearranged.</summary>
-    private async Task<DriveLayout?> LoadLayoutForMoveAsync(int diskIndex)
+    /// <summary>Reads the partition table (read-only); on failure, says why the disk cannot be rearranged.</summary>
+    private async Task<(DriveLayout? Layout, string? Error)> LoadLayoutAsync(int diskIndex)
     {
         Cursor = Cursors.Wait;
         SetBusy(true);
         try
         {
-            return await Task.Run(() => PhysicalDiskMover.LoadLayout(diskIndex));
+            return (await Task.Run(() => PhysicalDiskMover.LoadLayout(diskIndex)), null);
         }
         catch (InvalidDataException ex)
         {
-            ShowMoveRefused($"Disk {diskIndex} cannot be rearranged: {ex.Message}");
+            return (null, $"Disk {diskIndex} cannot be rearranged: {ex.Message}");
         }
         catch (Exception ex)
         {
-            ShowMoveRefused($"Could not read the partition table of disk {diskIndex}: {ex.Message}");
+            return (null, $"Could not read the partition table of disk {diskIndex}: {ex.Message}");
         }
         finally
         {
             Cursor = null;
             SetBusy(false);
         }
-        return null;
+    }
+
+    /// <summary>Reads the partition table (read-only), or explains why the disk cannot be rearranged.</summary>
+    private async Task<DriveLayout?> LoadLayoutForMoveAsync(int diskIndex)
+    {
+        var (layout, error) = await LoadLayoutAsync(diskIndex);
+        if (error is not null) ShowMoveRefused(error);
+        return layout;
     }
 
     private async void OpAlign_Click(object sender, RoutedEventArgs e)
@@ -925,54 +1022,6 @@ public partial class MainWindow : Window
         try
         {
             _queue.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, current, length, target));
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        {
-            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    private async void OpMove_Click(object sender, RoutedEventArgs e)
-    {
-        if (Selected is not { Unallocated: false } row || CheckCanMove(row) is not { } letter) return;
-        if (await LoadLayoutForMoveAsync(row.DiskIndex) is null) return;
-
-        const long mib = 1L << 20;
-        long length = (long)row.Size, current = (long)row.Offset;
-
-        // Free regions of this disk, counting the partition's own space as free (it is vacated while it moves).
-        // Two free rows only merge when nothing sits between them.
-        var regions = new List<(long Start, long End)>();
-        bool previousFree = false;
-        foreach (var r in DisksGrid.Items.OfType<PartitionRow>()
-                     .Where(r => r.DiskIndex == row.DiskIndex && !r.Uninitialized).OrderBy(r => r.Offset))
-        {
-            if (!r.Unallocated && !ReferenceEquals(r, row))
-            {
-                previousFree = false;
-                continue;
-            }
-            long start = (long)r.Offset, end = (long)(r.Offset + r.Size);
-            if (previousFree) regions[^1] = (regions[^1].Start, end);
-            else regions.Add((start, end));
-            previousFree = true;
-        }
-
-        // The partition can slide within the free space around it (the unallocated stretches touching it).
-        var home = regions.FirstOrDefault(r => r.Start <= current && current < r.End);
-        if (home.End - home.Start - length < mib)
-        {
-            MessageBox.Show(this, $"There is no free space next to {letter}: on disk {row.DiskIndex} to move it into.",
-                "Move partition", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var dialog = new MoveDialog(letter, row.Size, row.UsedBytes, home.Start, home.End, current) { Owner = this };
-        if (dialog.ShowDialog() != true) return;
-
-        try
-        {
-            _queue.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, current, length, dialog.NewOffsetBytes));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {

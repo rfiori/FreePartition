@@ -127,7 +127,9 @@ public sealed class SizeInput : Grid
             return;
         }
 
-        if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value) && value > 0)
+        // Zero only makes sense where the minimum is zero (e.g. the free space before a partition).
+        if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value)
+            && (value > 0 || (value == 0 && Minimum == 0)))
             SetBytes((long)(value * (decimal)UnitBytes));
         else
             ShowValue();

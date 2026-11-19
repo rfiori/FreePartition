@@ -173,7 +173,7 @@ To test it: **Start > Power**, hold **Shift** and click **Restart**. The blue *C
 
 The Windows partition keeps its old size; the rest of the new disk is unallocated (free).
 
-If the free space comes **right after C:**, just select C: in FreePartition, click **Resize partition**, make it fill
+If the free space comes **right after C:**, just select C: in FreePartition, click **Resize/Move partition**, make it fill
 the free space and click **Apply**.
 
 If the **recovery partition sits between C: and the free space** (the usual case), it has to be moved to the end
@@ -181,8 +181,8 @@ first (*not tested*):
 
 1. Turn off the recovery for a moment (as administrator): `reagentc /disable`
 2. In FreePartition, select the recovery partition and click **Show partition** (it needs a letter to be moved).
-3. Click **Move partition** and move it to the end of the disk.
-4. Select C:, click **Resize partition** and make it fill the free space.
+3. Click **Resize/Move partition** and move it to the end of the disk.
+4. Select C:, click **Resize/Move partition** and make it fill the free space.
 5. Click **Apply** and wait.
 6. Select the recovery partition again and click **Hide partition** (removes the letter), then **Apply**.
 7. Turn the recovery back on: `reagentc /enable`, then check it with `reagentc /info` (step 6.1).
@@ -353,7 +353,7 @@ step 1.5.
 first (Resize), apply it, then open this window again.*
 
 **Solution:** first free space on C: (delete or move files to another disk). Then, in FreePartition, select C:,
-click **Resize partition**, choose a size smaller than the new disk minus about 2 GB, and click **Apply**. Open **Clone Windows** again.
+click **Resize/Move partition**, choose a size smaller than the new disk minus about 2 GB, and click **Apply**. Open **Clone Windows** again.
 
 ### There are pending operations
 

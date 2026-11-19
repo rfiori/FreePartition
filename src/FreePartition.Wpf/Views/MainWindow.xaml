@@ -496,18 +496,11 @@
                             </StackPanel>
                         </Button>
                         <TextBlock Text="SIZE AND POSITION" Style="{StaticResource GroupTitle}" />
-                        <Button x:Name="OpResize" Style="{StaticResource OperationItem}" Click="OpResize_Click"
-                                ToolTip="Extend or shrink the selected partition">
+                        <Button x:Name="OpResize" Style="{StaticResource OperationItem}" Click="OpResizeMove_Click"
+                                ToolTip="Extend, shrink or move the selected partition within the free space around it (a move loses data if interrupted)">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE740;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Resize partition" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="OpMove" Style="{StaticResource OperationItem}" Click="OpMove_Click"
-                                ToolTip="Move the selected partition into free space on the same disk (data is lost if interrupted)">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8AB;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Move partition" />
+                                <TextBlock Text="Resize/Move partition" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="OpAlign" Style="{StaticResource OperationItem}" Click="OpAlign_Click"

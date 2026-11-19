@@ -130,9 +130,12 @@ public sealed record PartitionTarget(int DiskNumber, int PartitionNumber, long O
 }
 
 /// <summary>Shrinks or extends a partition. Without a size, extends to the maximum possible.</summary>
-public sealed record ResizePartition(char Drive, long? NewSizeBytes = null) : DiskOperation
+/// <param name="WaitForDrive">Queued right after a move of the same partition: Windows takes a few seconds to mount
+/// the volume at its new position, so the script first waits (up to a minute) for the drive letter to come back.</param>
+public sealed record ResizePartition(char Drive, long? NewSizeBytes = null, bool WaitForDrive = false) : DiskOperation
 {
     private const long MinimumSize = 1L << 20;   // 1 MiB
+    private const int WaitSeconds = 60;
 
     public override string Description => NewSizeBytes is null
         ? $"Extend {char.ToUpperInvariant(Drive)}: to the maximum available"
@@ -152,9 +155,13 @@ public sealed record ResizePartition(char Drive, long? NewSizeBytes = null) : Di
     public override string GenerateScript()
     {
         char d = NormalizeLetter(Drive);
-        return NewSizeBytes is null
+        string wait = WaitForDrive
+            ? $"for ($i = 0; $i -lt {WaitSeconds} -and -not (Get-Partition -DriveLetter {d} -ErrorAction SilentlyContinue); $i++) " +
+              "{ Start-Sleep -Seconds 1; Update-HostStorageCache }; "
+            : "";
+        return wait + (NewSizeBytes is null
             ? $"$max = (Get-PartitionSupportedSize -DriveLetter {d}).SizeMax; Resize-Partition -DriveLetter {d} -Size $max"
-            : $"Resize-Partition -DriveLetter {d} -Size {NewSizeBytes.Value}";
+            : $"Resize-Partition -DriveLetter {d} -Size {NewSizeBytes.Value}");
     }
 }
 

@@ -41,6 +41,14 @@ public class OperationQueueTests
     }
 
     [Fact]
+    public void Resize_AfterAMove_WaitsForTheDriveFirst()
+    {
+        string script = new ResizePartition('d', 50_000_000_000, WaitForDrive: true).GenerateScript();
+        Assert.StartsWith("for ($i = 0; $i -lt 60 -and -not (Get-Partition -DriveLetter D -ErrorAction SilentlyContinue)", script);
+        Assert.EndsWith("Resize-Partition -DriveLetter D -Size 50000000000", script);
+    }
+
+    [Fact]
     public void Extend_WithoutSize_UsesMaximumSupportedSize()
     {
         var script = new ResizePartition('E').GenerateScript();

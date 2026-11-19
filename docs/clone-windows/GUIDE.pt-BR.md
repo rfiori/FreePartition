@@ -177,7 +177,7 @@ opção* (clique em **Continuar** para voltar ao Windows). Se `reagentc /enable`
 
 A partição do Windows mantém o tamanho antigo; o resto do disco novo fica não alocado (livre).
 
-Se o espaço livre vier **logo depois do C:**, basta selecionar o C: no FreePartition, clicar em **Resize partition**,
+Se o espaço livre vier **logo depois do C:**, basta selecionar o C: no FreePartition, clicar em **Resize/Move partition**,
 fazê-lo ocupar o espaço livre e clicar em **Apply**.
 
 Se a **partição de recuperação estiver entre o C: e o espaço livre** (o caso comum), ela precisa ir para o fim antes
@@ -186,8 +186,8 @@ Se a **partição de recuperação estiver entre o C: e o espaço livre** (o cas
 1. Desligue a recuperação por um momento (como administrador): `reagentc /disable`
 2. No FreePartition, selecione a partição de recuperação e clique em **Show partition** (ela precisa de letra para ser
    movida).
-3. Clique em **Move partition** e mova-a para o fim do disco.
-4. Selecione o C:, clique em **Resize partition** e faça-o ocupar o espaço livre.
+3. Clique em **Resize/Move partition** e mova-a para o fim do disco.
+4. Selecione o C:, clique em **Resize/Move partition** e faça-o ocupar o espaço livre.
 5. Clique em **Apply** e aguarde.
 6. Selecione de novo a partição de recuperação e clique em **Hide partition** (remove a letra), depois em **Apply**.
 7. Ligue a recuperação de novo: `reagentc /enable` e confira com `reagentc /info` (passo 6.1).
@@ -361,7 +361,7 @@ passo 1.5.
 first (Resize), apply it, then open this window again.*
 
 **Solução:** primeiro libere espaço no C: (apague arquivos ou mova-os para outro disco). Depois, no FreePartition,
-selecione o C:, clique em **Resize partition**, escolha um tamanho menor que o disco novo menos uns 2 GB e clique em
+selecione o C:, clique em **Resize/Move partition**, escolha um tamanho menor que o disco novo menos uns 2 GB e clique em
 **Apply**. Abra o **Clone Windows** de novo.
 
 ### Há operações pendentes
