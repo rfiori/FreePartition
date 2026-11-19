@@ -27,7 +27,8 @@ public sealed record PartitionRow(
     bool Unmounted = false);   // usage read straight from the disk: Windows has no volume to act on
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
-public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
+public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map,
+    bool Offline = false);
 
 /// <summary>Numbered row of the operation queue.</summary>
 public sealed record QueueItem(int Order, DiskOperation Operation);
@@ -41,19 +42,40 @@ public partial class MainWindow : Window
     private const string UnknownFileSystem = "Unknown";
 
     // Used-space bar of the disk map (the border adds 2 to this height).
-    private const double UsageBarHeight = 18;
-    private static readonly Brush UsageTrack = Freeze(new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6)));
-    private static readonly Brush UsageTrackBorder = Freeze(new SolidColorBrush(Color.FromRgb(0xBC, 0xBC, 0xBC)));
-    private static readonly Brush UsageText = Freeze(new SolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1B)));
-    private static readonly Brush UsageFill = Freeze(new LinearGradientBrush(
-        Color.FromRgb(0x8B, 0xC8, 0xF2), Color.FromRgb(0x4A, 0x9D, 0xDE), 90));
+    private const double UsageBarHeight = 14;
+    private const double MapBoxHeight = 50;
+    private static readonly Brush OfflineText = Freeze(new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)));   // the red of REAL MODE
+    private static readonly Brush UsageTrack = Freeze(Gradient(0xFA, 0xFA, 0xFA, 0xDC, 0xDC, 0xDC));
+    private static readonly Brush UsageTrackBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x9C, 0x9C, 0x9C)));
 
+    // Used-space fill by kind of area, like the legend under the map.
+    private static readonly Brush PrimaryFill = Freeze(Gradient(0x8C, 0x90, 0xE0, 0x3B, 0x3F, 0x9E));
+    private static readonly Brush OtherFill = Freeze(Gradient(0xA6, 0xE8, 0x84, 0x48, 0xA8, 0x36));
+    private static readonly Brush UnallocatedFill = Freeze(new LinearGradientBrush(
+        new GradientStopCollection
+        {
+            new(Color.FromRgb(0xF2, 0xF2, 0xF2), 0), new(Color.FromRgb(0xF2, 0xF2, 0xF2), 0.5),
+            new(Color.FromRgb(0xD0, 0xD0, 0xD0), 0.5), new(Color.FromRgb(0xD0, 0xD0, 0xD0), 1)
+        }, new Point(0, 0), new Point(5, 5))
+    {
+        MappingMode = BrushMappingMode.Absolute, SpreadMethod = GradientSpreadMethod.Repeat
+    });
+
+    // Frame of a disk: blue, or green for the disk of the selected partition.
+    private static readonly Brush DiskGroupBackground = Freeze(Gradient(0xF1, 0xF5, 0xFC, 0xCF, 0xDC, 0xF0));
+    private static readonly Brush DiskGroupBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x95, 0xAC, 0xD2)));
+    private static readonly Brush SelectedDiskBackground = Freeze(Gradient(0xEC, 0xF8, 0xE2, 0xB4, 0xE0, 0x92));
+    private static readonly Brush SelectedDiskBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x7B, 0xB6, 0x57)));
+
+    private static readonly Brush BoxBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x8F, 0xA7, 0xCC)));
     private static readonly Brush NormalBox = Brushes.White;
-    private static readonly Brush SelectedBox = new SolidColorBrush(Color.FromRgb(0xFF, 0xF1, 0xB8));
+    private static readonly Brush SelectedBox = Freeze(new SolidColorBrush(Color.FromRgb(0xFF, 0xF3, 0xC4)));
+    private static readonly Brush SelectedBoxBorder = Freeze(new SolidColorBrush(Color.FromRgb(0xE0, 0xA8, 0x2E)));
 
     private readonly OperationQueue _queue;
     private readonly char? _systemLetter;
     private readonly Dictionary<PartitionRow, Border> _boxes = new();
+    private readonly Dictionary<int, Border> _diskGroups = new();
     private CancellationTokenSource? _operationsCts;
     private IReadOnlyList<DiskInfo> _disks = [];
     private readonly bool _isWinPe;
@@ -269,7 +291,7 @@ public partial class MainWindow : Window
             AddFree(cursor, disk.Size, disk.PartitionStyle == "Uninitialized");
 
         var map = rows.Concat(reserved).OrderBy(r => r.Offset).ToList();
-        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map);
+        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map, disk.IsOffline);
     }
 
     /// <summary>The hidden MSR stretch: drawn on the map only, so no operation can pick it.</summary>
@@ -306,24 +328,32 @@ public partial class MainWindow : Window
     {
         DiskMap.Children.Clear();
         _boxes.Clear();
+        _diskGroups.Clear();
 
         foreach (var disk in disks)
         {
-            var line = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            var line = new Grid();
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var label = new StackPanel { Margin = new Thickness(2, 4, 8, 4) };
+            // Disk name, style and size straight on the frame, like Disk Management.
+            var label = new StackPanel { Margin = new Thickness(4, 2, 6, 2) };
             var header = new StackPanel { Orientation = Orientation.Horizontal };
             header.Children.Add(new TextBlock
             {
-                Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 20,
+                Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 15,
                 Foreground = (Brush)FindResource("Accent"), VerticalAlignment = VerticalAlignment.Center
             });
-            header.Children.Add(new TextBlock { Text = $"Disk{disk.Index}", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock
+            {
+                Text = $"Disk {disk.Index}", FontWeight = FontWeights.Bold, Margin = new Thickness(5, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
             label.Children.Add(header);
-            label.Children.Add(new TextBlock { Text = $"Basic {disk.Style}", FontSize = 11, Foreground = Brushes.DimGray });
-            label.Children.Add(new TextBlock { Text = ByteFormatter.Format(disk.Size), FontSize = 11, Foreground = Brushes.DimGray });
+            label.Children.Add(new TextBlock { Text = $"Basic {disk.Style}", FontSize = 11 });
+            label.Children.Add(new TextBlock { Text = ByteFormatter.Format(disk.Size), FontSize = 11 });
+            if (disk.Offline)
+                label.Children.Add(OfflineBadge(disk.Index));
             Grid.SetColumn(label, 0);
             line.Children.Add(label);
 
@@ -334,8 +364,8 @@ public partial class MainWindow : Window
             {
                 boxes.ColumnDefinitions.Add(new ColumnDefinition
                 {
-                    Width = new GridLength(Math.Max((double)part.Size, total * 0.07), GridUnitType.Star),
-                    MinWidth = 56
+                    Width = new GridLength(Math.Max((double)part.Size, total * 0.06), GridUnitType.Star),
+                    MinWidth = 48
                 });
                 var box = CreateBox(part);
                 Grid.SetColumn(box, column++);
@@ -345,8 +375,82 @@ public partial class MainWindow : Window
             Grid.SetColumn(boxes, 1);
             line.Children.Add(boxes);
 
-            DiskMap.Children.Add(line);
+            // One frame around the whole disk: its label and all its partitions.
+            var group = new Border
+            {
+                Background = DiskGroupBackground, BorderBrush = DiskGroupBorder, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(3, 3, 0, 3), Margin = new Thickness(0, 0, 0, 6), Child = line
+            };
+            _diskGroups[disk.Index] = group;
+            DiskMap.Children.Add(group);
         }
+
+        DiskMap.Children.Add(BuildLegend());
+        HighlightSelection();
+    }
+
+    private static LinearGradientBrush Gradient(byte r1, byte g1, byte b1, byte r2, byte g2, byte b2) =>
+        new(Color.FromRgb(r1, g1, b1), Color.FromRgb(r2, g2, b2), 90);
+
+    /// <summary>"Primary / Other / Unallocated" key for the used-space colors of the map.</summary>
+    private static StackPanel BuildLegend()
+    {
+        var legend = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 2, 0, 4) };
+        foreach (var (text, brush) in new[]
+                 {
+                     ("Primary", PrimaryFill), ("EFI / Other", OtherFill), ("Unallocated", UnallocatedFill)
+                 })
+        {
+            legend.Children.Add(new Border
+            {
+                Width = 14, Height = 12, Background = brush, BorderBrush = UsageTrackBorder, BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            legend.Children.Add(new TextBlock
+            {
+                Text = text, FontSize = 11, Foreground = Brushes.DimGray, Margin = new Thickness(4, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+        return legend;
+    }
+
+    /// <summary>"Offline" in bold under the disk size, with a button that queues bringing the disk online.</summary>
+    private StackPanel OfflineBadge(int diskIndex)
+    {
+        var badge = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+        badge.Children.Add(new TextBlock
+        {
+            Text = "Offline", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = OfflineText
+        });
+        // Power glyph + text on a rounded accent button, centered under the disk details.
+        var caption = new StackPanel { Orientation = Orientation.Horizontal };
+        caption.Children.Add(new TextBlock
+        {
+            Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0)
+        });
+        caption.Children.Add(new TextBlock { Text = "Bring online", VerticalAlignment = VerticalAlignment.Center });
+        var button = new Button
+        {
+            Content = caption, Style = (Style)FindResource("MapActionButton"), Margin = new Thickness(0, 5, 0, 2),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            ToolTip = $"Queue \"Bring disk {diskIndex} online\" (click Apply to run it). Windows then mounts its volumes again."
+        };
+        button.Click += (_, _) =>
+        {
+            if (_queue.Pending.OfType<SetDiskOnline>().Any(o => o.DiskNumber == diskIndex)) return;
+            try
+            {
+                _queue.Add(new SetDiskOnline(diskIndex));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
+        badge.Children.Add(button);
+        return badge;
     }
 
     private static Brush Freeze(Brush brush)
@@ -358,55 +462,45 @@ public partial class MainWindow : Window
     private Border CreateBox(PartitionRow part)
     {
         bool empty = part.Unallocated || part.Reserved;
-        var borderBrush = empty ? Brushes.Silver : new SolidColorBrush(Color.FromRgb(0x5B, 0x9B, 0xD5));
+        string? usageTip = null;
         var content = new StackPanel { Margin = new Thickness(3) };
 
+        // Used-space bar on top: colored by kind of partition, hatched for space that holds nothing.
+        var bar = new Grid();
         if (!empty)
         {
-            // Used space as a rounded bar with the percentage inside. Without a readable volume there is
-            // no usage to show, so the bar stays empty instead of claiming 0%.
+            // Without a readable volume there is no usage to show, so the bar stays empty instead of claiming 0%.
             bool hasUsage = part.VolumeSize is not null;
             double fraction = !hasUsage || part.Size == 0 ? 0 : Math.Clamp((double)part.UsedBytes / part.Size, 0, 1);
-            var bar = new Grid();
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(fraction, 0.0001), GridUnitType.Star) });
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(1 - fraction, 0.0001), GridUnitType.Star) });
             if (fraction > 0)
-            {
-                var filled = new Border
-                {
-                    Background = UsageFill,
-                    CornerRadius = fraction >= 0.999 ? new CornerRadius(3) : new CornerRadius(3, 0, 0, 3)
-                };
-                Grid.SetColumn(filled, 0);
-                bar.Children.Add(filled);
-            }
+                bar.Children.Add(new Border { Background = part.Type == "Primary" ? PrimaryFill : OtherFill });
             if (hasUsage)
-            {
-                var percent = new TextBlock
-                {
-                    Text = fraction.ToString("P0", CultureInfo.CurrentCulture), FontSize = 11, Foreground = UsageText,
-                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumnSpan(percent, 2);
-                bar.Children.Add(percent);
-            }
-            content.Children.Add(new Border
-            {
-                Height = UsageBarHeight, CornerRadius = new CornerRadius(4), Background = UsageTrack, BorderBrush = UsageTrackBorder,
-                BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 3), Child = bar
-            });
+                usageTip = $"Used: {ByteFormatter.Format(part.UsedBytes)} ({fraction.ToString("P0", CultureInfo.CurrentCulture)})";
         }
-        else
+        content.Children.Add(new Border
         {
-            content.Children.Add(new Border { Height = UsageBarHeight + 3 });   // keeps the text lines level with the other boxes
-        }
+            Height = UsageBarHeight, CornerRadius = new CornerRadius(2), Background = empty ? UnallocatedFill : UsageTrack,
+            BorderBrush = UsageTrackBorder, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 3), Child = bar
+        });
 
-        string title = part.Reserved ? "Reserved (MSR)" : part.Unallocated ? "Unallocated"
-            : string.IsNullOrEmpty(part.FileSystem) ? part.Name : $"{part.Name} ({part.FileSystem})";
-        content.Children.Add(new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12 });
-        content.Children.Add(new TextBlock { Text = part.Capacity, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, Foreground = Brushes.DimGray });
+        // "C: System" in bold, then "200,08 GB NTFS".
+        string title = part.Reserved ? "Reserved (MSR)" : part.Unallocated ? "*" : part.Name;
+        string detail = part.Unallocated ? $"{part.Capacity} Unallocated"
+            : string.IsNullOrEmpty(part.FileSystem) ? part.Capacity : $"{part.Capacity} {part.FileSystem}";
+        content.Children.Add(new TextBlock
+        {
+            Text = title, FontWeight = FontWeights.Bold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 2, 0)
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = detail, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 2, 0)
+        });
+        title = part.Unallocated ? "Unallocated" : string.IsNullOrEmpty(part.FileSystem) ? title : $"{title} ({part.FileSystem})";
+        title += $"\n{part.Capacity}";
 
-        string tooltip = title;
+        string tooltip = usageTip is null ? title : $"{title}\n{usageTip}";
         if (!empty && part.PartitionNumber > 0
             && PartitionAlignment.Classify(part.Offset) == AlignmentStatus.Misaligned)
         {
@@ -414,13 +508,14 @@ public partial class MainWindow : Window
             {
                 Text = "⚠ Not aligned", TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 11, Foreground = Brushes.DarkOrange
             });
-            tooltip = $"{title}\n{PartitionAlignment.Describe(AlignmentStatus.Misaligned)}";
+            tooltip += $"\n{PartitionAlignment.Describe(AlignmentStatus.Misaligned)}";
         }
 
         var box = new Border
         {
-            Background = NormalBox, BorderBrush = borderBrush, BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 3, 0), Child = content, ToolTip = tooltip
+            Background = NormalBox, BorderBrush = BoxBorder, BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 3, 0), Child = content, ToolTip = tooltip,
+            MinHeight = MapBoxHeight, CornerRadius = new CornerRadius(3)
         };
         if (part.Reserved)
         {
@@ -440,10 +535,28 @@ public partial class MainWindow : Window
 
     private void DisksGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        foreach (var (row, box) in _boxes)
-            box.Background = ReferenceEquals(row, DisksGrid.SelectedItem) ? SelectedBox : NormalBox;
-
+        HighlightSelection();
         RefreshAvailableOperations();
+    }
+
+    /// <summary>Marks the selected partition's box and the frame of its disk on the map.</summary>
+    private void HighlightSelection()
+    {
+        foreach (var (row, box) in _boxes)
+        {
+            bool selected = ReferenceEquals(row, DisksGrid.SelectedItem);
+            box.Background = selected ? SelectedBox : NormalBox;
+            box.BorderBrush = selected ? SelectedBoxBorder : BoxBorder;
+        }
+
+        // The disk that holds the selected partition turns green, like the reference layout.
+        int? selectedDisk = (DisksGrid.SelectedItem as PartitionRow)?.DiskIndex;
+        foreach (var (index, group) in _diskGroups)
+        {
+            bool selected = index == selectedDisk;
+            group.Background = selected ? SelectedDiskBackground : DiskGroupBackground;
+            group.BorderBrush = selected ? SelectedDiskBorder : DiskGroupBorder;
+        }
     }
 
     // ------------------------------------------------------------------ Context menu
