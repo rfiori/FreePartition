@@ -741,12 +741,19 @@
 
             <!-- ===================== CENTER AREA ===================== -->
             <Grid Grid.Column="1">
+                <!-- The log splitter only trades space between the top block (table + map) and the log,
+                     so the disk map keeps its height while the log is resized. -->
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="240" />
+                    <RowDefinition x:Name="LogSplitterRow" Height="0" />
+                    <RowDefinition x:Name="LogRow" Height="0" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" MinHeight="120" />
                     <RowDefinition Height="5" />
                     <RowDefinition Height="330" MinHeight="110" />
-                    <RowDefinition x:Name="LogSplitterRow" Height="0" />
-                    <RowDefinition x:Name="LogRow" Height="0" />
                 </Grid.RowDefinitions>
 
                 <DataGrid x:Name="DisksGrid" Grid.Row="0" AutoGenerateColumns="False" IsReadOnly="True"
@@ -804,13 +811,14 @@
                               Background="#F3F3F3">
                     <StackPanel x:Name="DiskMap" Margin="10,10,10,6" />
                 </ScrollViewer>
+                </Grid>
 
                 <!-- Operations log (shown when applying or via the View menu).
                      Drag the bar above it to resize; Ctrl + mouse wheel changes the font size. -->
-                <GridSplitter x:Name="LogSplitter" Grid.Row="3" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                <GridSplitter x:Name="LogSplitter" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                               ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Background="#EFEFEF"
                               Visibility="Collapsed" />
-                <Grid x:Name="LogPanel" Grid.Row="4" Visibility="Collapsed">
+                <Grid x:Name="LogPanel" Grid.Row="2" Visibility="Collapsed">
                     <TextBox x:Name="TxtOperationsLog" IsReadOnly="True"
                              VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
                              BorderThickness="0,1,0,0" BorderBrush="{StaticResource Line}" Padding="0,0,28,0"

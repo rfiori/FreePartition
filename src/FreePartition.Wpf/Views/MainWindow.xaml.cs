@@ -45,16 +45,21 @@ public partial class MainWindow : Window
     private const double UsageBarHeight = 15;
     private const double MapBoxHeight = 51;
 
-    private static readonly System.Windows.Media.Effects.DropShadowEffect PercentShadow = CreatePercentShadow();
-
-    private static System.Windows.Media.Effects.DropShadowEffect CreatePercentShadow()
+    /// <summary>Text with a smooth white outline: the glyph outline is drawn as a vector (white stroke under black fill), so
+    /// it stays anti-aliased and readable on any background.</summary>
+    private static FrameworkElement OutlinedText(string text)
     {
-        var shadow = new System.Windows.Media.Effects.DropShadowEffect
+        // Dark text with a soft white glow instead of a hard stroke: smooth edges, still readable on the light track and on the fill.
+        return new TextBlock
         {
-            Color = Colors.Black, ShadowDepth = 0, BlurRadius = 3, Opacity = 0.9
+            Text = text, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.Black, ShadowDepth = 2, BlurRadius = 1, Opacity = 1
+            }
         };
-        shadow.Freeze();
-        return shadow;
     }
     private static readonly Brush OfflineText = Freeze(new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)));   // the red of REAL MODE
     private static readonly Brush TakeOfflineBackground = Freeze(new SolidColorBrush(Color.FromRgb(0x8B, 0x1A, 0x1A)));   // dark red
@@ -521,13 +526,8 @@ public partial class MainWindow : Window
             {
                 string percent = fraction.ToString("P0", CultureInfo.CurrentCulture);
                 usageTip = $"Used: {ByteFormatter.Format(part.UsedBytes)} ({percent})";
-                // Percentage in the middle of the bar: white with a dark shadow, readable on the fill and on the track.
-                var label = new TextBlock
-                {
-                    Text = percent, FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
-                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-                    Effect = PercentShadow
-                };
+                // Percentage in the middle of the bar: dark with a white outline, readable on the light track and on the fill.
+                var label = OutlinedText(percent);
                 Grid.SetColumnSpan(label, 2);
                 bar.Children.Add(label);
             }
