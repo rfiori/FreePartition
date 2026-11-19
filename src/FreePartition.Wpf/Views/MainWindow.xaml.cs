@@ -106,6 +106,7 @@ public partial class MainWindow : Window
         TxtVersion.Text = $"v{version}";
         _currentVersion = version;
         MenuUpdateOnStartup.IsChecked = _updateSettings.CheckOnStartup;
+        BuildShareButtons();
     }
 
     private int _busyCount;

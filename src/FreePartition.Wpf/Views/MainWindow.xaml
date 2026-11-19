@@ -113,6 +113,39 @@
             </Setter>
         </Style>
 
+        <!-- Round gray share icon; on hover it takes the network's color, kept in BorderBrush (see BuildShareButtons) -->
+        <Style x:Key="ShareButton" TargetType="Button">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Margin" Value="3,0,0,0" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="#8A8A8A" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse Fill="{TemplateBinding Background}" />
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{Binding BorderBrush, RelativeSource={RelativeSource Self}}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Larger version for the toolbar -->
+        <Style x:Key="ToolbarShareButton" TargetType="Button" BasedOn="{StaticResource ShareButton}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="5,0,0,0" />
+        </Style>
+
         <!-- "X" that closes a panel: gray, red on hover -->
         <Style x:Key="CloseButton" TargetType="Button">
             <Setter Property="Foreground" Value="#7A7A7A" />
@@ -333,6 +366,10 @@
         <!-- ===================== TOOLBAR ===================== -->
         <Border DockPanel.Dock="Top" Background="White" BorderBrush="{StaticResource Line}"
                 BorderThickness="0,1,0,1" Padding="6,4">
+            <DockPanel LastChildFill="True">
+            <!-- Share the app, right-aligned; filled from code (BuildShareButtons), hidden in WinPE -->
+            <StackPanel x:Name="ToolbarShareIcons" DockPanel.Dock="Right" Orientation="Horizontal"
+                        VerticalAlignment="Center" Margin="12,0,6,0" />
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="BtnUndo" Style="{StaticResource ToolbarButton}" ToolTip="Undo the last pending operation"
                         Click="BtnUndo_Click">
@@ -380,39 +417,58 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
+            </DockPanel>
         </Border>
 
         <!-- ===================== STATUS BAR ===================== -->
         <Border DockPanel.Dock="Bottom" Background="#F7F7F7" BorderBrush="{StaticResource Line}"
-                BorderThickness="0,1,0,0" Padding="8,4">
-            <DockPanel LastChildFill="True">
-                <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" Foreground="#777777" Margin="12,0,0,0" />
+                BorderThickness="0,1,0,0" Padding="8,6" MinHeight="34">
+            <!-- Status on the left, share icons in the middle of the bar, version on the right -->
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-                <!-- Busy indicator: a spinning arc, visible only while something is processing -->
-                <Ellipse x:Name="BusySpinner" DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0"
-                         Stroke="{StaticResource Accent}" StrokeThickness="2" StrokeDashArray="3 3"
-                         StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"
-                         VerticalAlignment="Center">
-                    <Ellipse.RenderTransform>
-                        <RotateTransform x:Name="BusyRotation" />
-                    </Ellipse.RenderTransform>
-                    <Ellipse.Triggers>
-                        <EventTrigger RoutedEvent="Loaded">
-                            <BeginStoryboard>
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetName="BusyRotation"
-                                                     Storyboard.TargetProperty="Angle"
-                                                     From="0" To="360" Duration="0:0:1"
-                                                     RepeatBehavior="Forever" />
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Ellipse.Triggers>
-                </Ellipse>
+                <DockPanel Grid.Column="0" LastChildFill="True" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <!-- Busy indicator: a spinning arc, visible only while something is processing -->
+                    <Ellipse x:Name="BusySpinner" DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0"
+                             Stroke="{StaticResource Accent}" StrokeThickness="2" StrokeDashArray="3 3"
+                             StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"
+                             VerticalAlignment="Center">
+                        <Ellipse.RenderTransform>
+                            <RotateTransform x:Name="BusyRotation" />
+                        </Ellipse.RenderTransform>
+                        <Ellipse.Triggers>
+                            <EventTrigger RoutedEvent="Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="BusyRotation"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         From="0" To="360" Duration="0:0:1"
+                                                         RepeatBehavior="Forever" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Ellipse.Triggers>
+                    </Ellipse>
 
-                <TextBlock x:Name="TxtDiskStatus" Foreground="#444444" TextTrimming="CharacterEllipsis"
-                           Text="We recommend closing all other applications while disk operations are running." />
-            </DockPanel>
+                    <TextBlock x:Name="TxtDiskStatus" Foreground="#444444" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Text="We recommend closing all other applications while disk operations are running." />
+                </DockPanel>
+
+                <!-- Share the app (hidden in WinPE, which usually has no browser or network) -->
+                <StackPanel x:Name="SharePanel" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Share:" Foreground="#777777" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <!-- Filled from code (BuildShareButtons), same icons as the toolbar -->
+                    <StackPanel x:Name="FooterShareIcons" Orientation="Horizontal" />
+                </StackPanel>
+
+                <TextBlock x:Name="TxtVersion" Grid.Column="2" HorizontalAlignment="Right" Foreground="#777777"
+                           Margin="12,0,0,0" VerticalAlignment="Center" />
+            </Grid>
         </Border>
 
         <Grid>
