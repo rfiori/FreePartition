@@ -434,6 +434,41 @@ public sealed record SetDiskOnline(int DiskNumber) : DiskOperation
     }
 }
 
+/// <summary>
+/// Takes a disk offline: Windows unmounts its volumes and leaves the disk alone until it is brought online again.
+/// Refused on the disk that holds Windows, by the queue (through its drive letters) and by the script (IsSystem/IsBoot).
+/// </summary>
+/// <param name="Drives">Drive letters on the disk, so the queue can refuse the disk that holds the Windows drive.</param>
+public sealed record SetDiskOffline(int DiskNumber, IReadOnlyList<char>? Drives = null) : DiskOperation
+{
+    public override string Description => $"Take disk {DiskNumber} offline";
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives =>
+        (Drives ?? Array.Empty<char>()).Select(char.ToUpperInvariant).ToArray();
+
+    public override string? Warning =>
+        $"The volumes of disk {DiskNumber} disappear from Windows until the disk is brought online again. " +
+        "Close any program that has files open on them first, or unsaved work may be lost.";
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        foreach (char drive in Drives ?? Array.Empty<char>())
+            NormalizeLetter(drive);
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"$d = Get-Disk -Number {DiskNumber}; " +
+               $"if ($d.IsSystem -or $d.IsBoot) {{ throw 'Disk {DiskNumber} holds Windows and cannot be taken offline.' }}; " +
+               $"Set-Disk -Number {DiskNumber} -IsOffline $true";
+    }
+}
+
 /// <summary>Shows a hidden partition by giving it a drive letter.</summary>
 public sealed record ShowPartition(int DiskNumber, int PartitionNumber, char Letter) : DiskOperation
 {

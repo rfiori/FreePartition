@@ -28,7 +28,7 @@ public sealed record PartitionRow(
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
 public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map,
-    bool Offline = false);
+    bool Offline = false, bool IsSystem = false);   // IsSystem: holds the Windows drive or the boot partition
 
 /// <summary>Numbered row of the operation queue.</summary>
 public sealed record QueueItem(int Order, DiskOperation Operation);
@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private const double UsageBarHeight = 14;
     private const double MapBoxHeight = 50;
     private static readonly Brush OfflineText = Freeze(new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)));   // the red of REAL MODE
+    private static readonly Brush TakeOfflineBackground = Freeze(new SolidColorBrush(Color.FromRgb(0x8B, 0x1A, 0x1A)));   // dark red
     private static readonly Brush UsageTrack = Freeze(Gradient(0xFA, 0xFA, 0xFA, 0xDC, 0xDC, 0xDC));
     private static readonly Brush UsageTrackBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x9C, 0x9C, 0x9C)));
 
@@ -291,7 +292,9 @@ public partial class MainWindow : Window
             AddFree(cursor, disk.Size, disk.PartitionStyle == "Uninitialized");
 
         var map = rows.Concat(reserved).OrderBy(r => r.Offset).ToList();
-        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map, disk.IsOffline);
+        // The disk Windows runs or boots from: it is never offered to be taken offline.
+        bool isSystem = rows.Any(r => (r.Letter is { } l && l == _systemLetter) || r.Details?.Contains("Boot") == true);
+        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map, disk.IsOffline, isSystem);
     }
 
     /// <summary>The hidden MSR stretch: drawn on the map only, so no operation can pick it.</summary>
@@ -354,6 +357,8 @@ public partial class MainWindow : Window
             label.Children.Add(new TextBlock { Text = ByteFormatter.Format(disk.Size), FontSize = 11 });
             if (disk.Offline)
                 label.Children.Add(OfflineBadge(disk.Index));
+            else if (!disk.IsSystem)
+                label.Children.Add(TakeOfflineButton(disk));
             Grid.SetColumn(label, 0);
             line.Children.Add(label);
 
@@ -423,34 +428,55 @@ public partial class MainWindow : Window
         {
             Text = "Offline", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = OfflineText
         });
-        // Power glyph + text on a rounded accent button, centered under the disk details.
+        badge.Children.Add(DiskStateButton("Bring online", null,
+            $"Queue \"Bring disk {diskIndex} online\" (click Apply to run it). Windows then mounts its volumes again.",
+            () => _queue.Pending.OfType<SetDiskOnline>().Any(o => o.DiskNumber == diskIndex),
+            () => new SetDiskOnline(diskIndex)));
+        return badge;
+    }
+
+    /// <summary>
+    /// Dark red "Take offline" button under the disk size. Not offered for the disk that holds Windows; the queue
+    /// and the script refuse that disk too.
+    /// </summary>
+    private Button TakeOfflineButton(DiskVisual disk)
+    {
+        var drives = disk.Rows.Select(r => r.Letter).OfType<char>().Distinct().ToArray();
+        return DiskStateButton("Take offline", TakeOfflineBackground,
+            $"Queue \"Take disk {disk.Index} offline\" (click Apply to run it). Windows unmounts its volumes until it is brought online again.",
+            () => _queue.Pending.OfType<SetDiskOffline>().Any(o => o.DiskNumber == disk.Index),
+            () => new SetDiskOffline(disk.Index, drives));
+    }
+
+    /// <summary>Rounded power button of the disk map that queues an operation (once) on the disk.</summary>
+    private Button DiskStateButton(string text, Brush? background, string tooltip, Func<bool> alreadyQueued, Func<DiskOperation> create)
+    {
         var caption = new StackPanel { Orientation = Orientation.Horizontal };
         caption.Children.Add(new TextBlock
         {
-            Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10,
+            Text = "\uE7E8", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10,
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0)
         });
-        caption.Children.Add(new TextBlock { Text = "Bring online", VerticalAlignment = VerticalAlignment.Center });
+        caption.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
         var button = new Button
         {
             Content = caption, Style = (Style)FindResource("MapActionButton"), Margin = new Thickness(0, 5, 0, 2),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            ToolTip = $"Queue \"Bring disk {diskIndex} online\" (click Apply to run it). Windows then mounts its volumes again."
+            HorizontalAlignment = HorizontalAlignment.Center, ToolTip = tooltip
         };
+        if (background is not null) button.Background = background;
         button.Click += (_, _) =>
         {
-            if (_queue.Pending.OfType<SetDiskOnline>().Any(o => o.DiskNumber == diskIndex)) return;
+            if (alreadyQueued()) return;
             try
             {
-                _queue.Add(new SetDiskOnline(diskIndex));
+                _queue.Add(create());
             }
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
                 MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         };
-        badge.Children.Add(button);
-        return badge;
+        return button;
     }
 
     private static Brush Freeze(Brush brush)

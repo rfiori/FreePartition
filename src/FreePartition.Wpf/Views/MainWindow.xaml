@@ -55,7 +55,7 @@
             </Setter>
         </Style>
 
-        <!-- Small rounded action button on the disk map (e.g. "Bring online") -->
+        <!-- Small rounded action button on the disk map ("Bring online"; "Take offline" sets a red Background) -->
         <Style x:Key="MapActionButton" TargetType="Button">
             <Setter Property="Background" Value="{StaticResource Accent}" />
             <Setter Property="Foreground" Value="White" />
@@ -71,10 +71,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#245A8A" />
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.85" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bg" Property="Background" Value="#1B4570" />
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.7" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4" />

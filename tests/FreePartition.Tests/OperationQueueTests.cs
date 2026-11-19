@@ -228,6 +228,31 @@ public class OperationQueueTests
         Assert.Throws<ArgumentException>(() => new SetDiskOnline(-1).Validate());
     }
 
+    [Fact]
+    public void SetDiskOffline_GeneratesScriptThatRefusesTheWindowsDisk()
+    {
+        string script = new SetDiskOffline(2).GenerateScript();
+        Assert.Contains("if ($d.IsSystem -or $d.IsBoot) { throw", script);
+        Assert.EndsWith("Set-Disk -Number 2 -IsOffline $true", script);
+        Assert.False(new SetDiskOffline(2).Destructive);
+    }
+
+    [Fact]
+    public void SetDiskOffline_WithInvalidValues_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new SetDiskOffline(-1).Validate());
+        Assert.Throws<ArgumentException>(() => new SetDiskOffline(1, ['1']).Validate());
+    }
+
+    [Fact]
+    public void SetDiskOffline_OnTheSystemDisk_IsRefusedByTheQueue()
+    {
+        var queue = new OperationQueue(protectedDrive: 'C');
+        Assert.Throws<InvalidOperationException>(() => queue.Add(new SetDiskOffline(0, ['c', 'D'])));
+        queue.Add(new SetDiskOffline(1, ['E']));
+        Assert.Single(queue.Pending);
+    }
+
     // ---------- check volume ----------
 
     [Fact]
