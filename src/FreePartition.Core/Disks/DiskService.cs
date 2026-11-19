@@ -89,11 +89,16 @@ public static class DiskService
                     volumes = [unlettered];
             }
 
-            // Windows mounted no volume on it (offline disk, automount off, a type it does not mount): no letter and no
-            // \\?\Volume{guid}\ path. Its file system can still be read straight from the disk.
-            bool unmounted = volumes.Count == 0 && (diskOffline || info is { Letter: null } && VolumeGuidPath(info.AccessPaths) is null);
-            if (unmounted && rawDisk.ReadUsage(offset, size) is { } usage)
+            // Windows reported no file system for it: offline disk, a type it does not mount, or automount off. In that last
+            // case the partition often still has a \\?\Volume{guid}\ path, but Win32_Volume shows no file system for it
+            // until something mounts it. Either way its file system can still be read straight from the disk.
+            string? guidPath = VolumeGuidPath(info?.AccessPaths);
+            bool unmounted = volumes.Count == 0 && (diskOffline || info is not null && guidPath is null);
+            if (volumes.Count == 0 && rawDisk.ReadUsage(offset, size) is { } usage)
+            {
                 volumes = [new LogicalVolumeInfo("", usage.Label, usage.FileSystem.ToString(), usage.Size, usage.Free, Unmounted: true)];
+                unmounted = true;
+            }
 
             // Like the "Status" column of Disk Management: Boot, Page File, Crash Dump, Active, partition kind.
             char? driveLetter = volumes.Count > 0 && volumes[0].Letter.Length > 0 ? char.ToUpperInvariant(volumes[0].Letter[0]) : null;
