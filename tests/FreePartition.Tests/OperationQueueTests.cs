@@ -215,6 +215,19 @@ public class OperationQueueTests
         Assert.Throws<ArgumentException>(() => new ShowPartition(0, 1, '1').Validate());
     }
 
+    [Fact]
+    public void SetDiskOnline_GeneratesScript()
+    {
+        Assert.Equal("Set-Disk -Number 2 -IsOffline $false", new SetDiskOnline(2).GenerateScript());
+        Assert.False(new SetDiskOnline(2).Destructive);
+    }
+
+    [Fact]
+    public void SetDiskOnline_WithInvalidDisk_IsRefused()
+    {
+        Assert.Throws<ArgumentException>(() => new SetDiskOnline(-1).Validate());
+    }
+
     // ---------- check volume ----------
 
     [Fact]

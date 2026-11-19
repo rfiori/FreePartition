@@ -409,6 +409,31 @@ public sealed record HidePartition(char Drive) : DiskOperation
     }
 }
 
+/// <summary>
+/// Brings an offline disk online, so Windows mounts its volumes again. When the disk went offline because its
+/// signature collided with another disk's, Windows gives it a new signature on the way.
+/// </summary>
+public sealed record SetDiskOnline(int DiskNumber) : DiskOperation
+{
+    public override string Description => $"Bring disk {DiskNumber} online";
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives => [];
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"Set-Disk -Number {DiskNumber} -IsOffline $false";
+    }
+}
+
 /// <summary>Shows a hidden partition by giving it a drive letter.</summary>
 public sealed record ShowPartition(int DiskNumber, int PartitionNumber, char Letter) : DiskOperation
 {
