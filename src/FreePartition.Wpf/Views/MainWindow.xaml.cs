@@ -42,8 +42,20 @@ public partial class MainWindow : Window
     private const string UnknownFileSystem = "Unknown";
 
     // Used-space bar of the disk map (the border adds 2 to this height).
-    private const double UsageBarHeight = 14;
-    private const double MapBoxHeight = 50;
+    private const double UsageBarHeight = 15;
+    private const double MapBoxHeight = 51;
+
+    private static readonly System.Windows.Media.Effects.DropShadowEffect PercentShadow = CreatePercentShadow();
+
+    private static System.Windows.Media.Effects.DropShadowEffect CreatePercentShadow()
+    {
+        var shadow = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = Colors.Black, ShadowDepth = 0, BlurRadius = 3, Opacity = 0.9
+        };
+        shadow.Freeze();
+        return shadow;
+    }
     private static readonly Brush OfflineText = Freeze(new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)));   // the red of REAL MODE
     private static readonly Brush TakeOfflineBackground = Freeze(new SolidColorBrush(Color.FromRgb(0x8B, 0x1A, 0x1A)));   // dark red
     private static readonly Brush UsageTrack = Freeze(Gradient(0xFA, 0xFA, 0xFA, 0xDC, 0xDC, 0xDC));
@@ -506,7 +518,19 @@ public partial class MainWindow : Window
             if (fraction > 0)
                 bar.Children.Add(new Border { Background = part.Type == "Primary" ? PrimaryFill : OtherFill });
             if (hasUsage)
-                usageTip = $"Used: {ByteFormatter.Format(part.UsedBytes)} ({fraction.ToString("P0", CultureInfo.CurrentCulture)})";
+            {
+                string percent = fraction.ToString("P0", CultureInfo.CurrentCulture);
+                usageTip = $"Used: {ByteFormatter.Format(part.UsedBytes)} ({percent})";
+                // Percentage in the middle of the bar: white with a dark shadow, readable on the fill and on the track.
+                var label = new TextBlock
+                {
+                    Text = percent, FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                    Effect = PercentShadow
+                };
+                Grid.SetColumnSpan(label, 2);
+                bar.Children.Add(label);
+            }
         }
         content.Children.Add(new Border
         {
