@@ -11,7 +11,7 @@ public static class DiskService
     public static IReadOnlyList<DiskInfo> ListDisks()
     {
         var result = new List<DiskInfo>();
-        var volumesByPartition = MapVolumes();
+        var volumesByPartition = MapVolumes(out var volumesByLetter);
         var volumesByGuid = MapVolumesByGuid();
         var files = FindSystemFiles();
         var ssdDisks = FindSsdDisks();
@@ -23,7 +23,7 @@ public static class DiskService
             using var disk = (ManagementObject)obj;
 
             int index = Convert.ToInt32(disk["Index"] ?? 0);
-            var partitions = ListPartitions(index, offlineDisks.Contains(index), volumesByPartition, volumesByGuid, files, out var reserved);
+            var partitions = ListPartitions(index, offlineDisks.Contains(index), volumesByPartition, volumesByLetter, volumesByGuid, files, out var reserved);
 
             // The Storage stack knows the real style (an initialized disk can have no partitions);
             // without it, infer from the partitions: Win32_DiskPartition.Type starts with "GPT:" on GPT disks.
@@ -53,6 +53,7 @@ public static class DiskService
     // which fails with "Not found" on some systems because of DeviceID escaping.
     private static List<PartitionInfo> ListPartitions(
         int diskIndex, bool diskOffline, Dictionary<string, List<LogicalVolumeInfo>> volumesByPartition,
+        Dictionary<string, LogicalVolumeInfo> volumesByLetter,
         Dictionary<string, LogicalVolumeInfo> volumesByGuid, SystemFiles files,
         out IReadOnlyList<ReservedRange> reserved)
     {
@@ -79,6 +80,15 @@ public static class DiskService
             if (info is not null)
             {
                 number = info.Number;
+
+                // The Storage stack ties the letter to the partition by its offset. Win32_LogicalDiskToPartition goes
+                // through Win32_DiskPartition's own numbering, which can point a logical drive of an MBR extended
+                // partition at the wrong partition (its usage then showed on another box of the map). Trust the offset.
+                if (info.Letter is { } owned && volumesByLetter.TryGetValue($"{owned}:", out var byLetter))
+                    volumes = [byLetter];
+                else if (info.Letter is null)
+                    volumes = volumes.Where(v => v.Letter.Length == 0).ToList();
+
                 // RAW partitions have a letter but no Win32_LogicalDisk, so the volume map misses them.
                 if (volumes.Count == 0 && info.Letter is { } letter)
                     volumes = [new LogicalVolumeInfo($"{letter}:", null, null, size, size)];
@@ -343,7 +353,7 @@ public static class DiskService
     }
 
     /// <summary>Partition DeviceID (e.g. "Disk #0, Partition #1") → logical volumes on it.</summary>
-    private static Dictionary<string, List<LogicalVolumeInfo>> MapVolumes()
+    private static Dictionary<string, List<LogicalVolumeInfo>> MapVolumes(out Dictionary<string, LogicalVolumeInfo> byLetter)
     {
         var logicalDisks = new Dictionary<string, LogicalVolumeInfo>(StringComparer.OrdinalIgnoreCase);
         using (var logicalSearcher = new ManagementObjectSearcher("SELECT * FROM Win32_LogicalDisk"))
@@ -362,6 +372,7 @@ public static class DiskService
         }
 
         var map = new Dictionary<string, List<LogicalVolumeInfo>>(StringComparer.OrdinalIgnoreCase);
+        byLetter = logicalDisks;
         using var searcher = new ManagementObjectSearcher("SELECT * FROM Win32_LogicalDiskToPartition");
         foreach (var obj in searcher.Get())
         {

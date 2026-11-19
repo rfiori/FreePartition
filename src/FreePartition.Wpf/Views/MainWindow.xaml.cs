@@ -498,7 +498,9 @@ public partial class MainWindow : Window
         {
             // Without a readable volume there is no usage to show, so the bar stays empty instead of claiming 0%.
             bool hasUsage = part.VolumeSize is not null;
-            double fraction = !hasUsage || part.Size == 0 ? 0 : Math.Clamp((double)part.UsedBytes / part.Size, 0, 1);
+            // Same base as the Used column: the volume's capacity, not the partition's size.
+            ulong capacity = part.VolumeSize ?? part.Size;
+            double fraction = !hasUsage || capacity == 0 ? 0 : Math.Clamp((double)part.UsedBytes / capacity, 0, 1);
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(fraction, 0.0001), GridUnitType.Star) });
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(1 - fraction, 0.0001), GridUnitType.Star) });
             if (fraction > 0)
