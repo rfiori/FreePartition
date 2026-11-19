@@ -112,8 +112,7 @@ Everything in the **Operations** panel (and the right-click menu, which mirrors 
 
 | Operation | What it does |
 | --- | --- |
-| **Resize partition** | Extends or shrinks the selected partition by dragging the partition bar. |
-| **Move partition** | Moves the partition into free space on the same disk (data is lost if interrupted). |
+| **Resize/Move partition** | Extends, shrinks or moves the selected partition within the free space around it: drag the partition to move it, or drag its edges to resize it from either side (a move loses data if interrupted). |
 | **Align partition** | Moves a partition that is not aligned to 4 KB to the nearest 1 MB boundary (data is lost if interrupted). |
 | **Clone partition** | Copies the selected partition, sector by sector, into unallocated space on the same or another disk, and adds it to that disk's partition table. The original is only read and is not changed. |
 | **Merge partitions** | Merges the selected partition into the one right before it; its files are kept in a folder. |
@@ -310,7 +309,7 @@ The guarantees the code is built around:
   and the **wipes**) only run after **Apply**, check the partition table first and write only where they must: inside the
   partition's own locked volume, into free space of the disk, or the partition table sectors. Clone and Restore write the
   table entry last; Convert saves the old table and puts it back if writing fails.
-- **Move partition cannot be canceled once the copy starts, and a power failure corrupts that partition** — the app says
+- **Moving a partition (Resize/Move) cannot be canceled once the copy starts, and a power failure corrupts that partition** — the app says
   so before and when applying. On SSDs, wipes cannot reach the drive's spare cells and the app warns about it.
 - The queue stops at the first failure; the remaining operations stay pending.
 - Every event is logged to `Log\operations.log` next to the executable (or `%LocalAppData%\FreePartition\operations.log` if that folder is not writable).

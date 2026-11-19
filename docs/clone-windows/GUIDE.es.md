@@ -186,8 +186,8 @@ Si la **partición de recuperación está entre C: y el espacio libre** (el caso
 1. Desactive la recuperación un momento (como administrador): `reagentc /disable`
 2. En FreePartition, seleccione la partición de recuperación y haga clic en **Show partition** (necesita una letra para
    moverse).
-3. Haga clic en **Move partition** y muévala al final del disco.
-4. Seleccione C:, haga clic en **Resize partition** y haga que ocupe el espacio libre.
+3. Haga clic en **Resize/Move partition** y muévala al final del disco.
+4. Seleccione C:, haga clic en **Resize/Move partition** y haga que ocupe el espacio libre.
 5. Haga clic en **Apply** y espere.
 6. Seleccione otra vez la partición de recuperación y haga clic en **Hide partition** (quita la letra), luego en
    **Apply**.
@@ -365,7 +365,7 @@ cifrada, vea el paso 1.5.
 first (Resize), apply it, then open this window again.*
 
 **Solución:** primero libere espacio en C: (borre archivos o muévalos a otro disco). Después, en FreePartition,
-seleccione C:, haga clic en **Resize partition**, elija un tamaño menor que el disco nuevo menos unos 2 GB y haga clic
+seleccione C:, haga clic en **Resize/Move partition**, elija un tamaño menor que el disco nuevo menos unos 2 GB y haga clic
 en **Apply**. Abra **Clone Windows** otra vez.
 
 ### Hay operaciones pendientes

@@ -1,7 +1,7 @@
 <Window x:Class="FreePartition.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Icon="/Assets/app.ico" Title="FreePartition" Height="720" Width="1180" MinHeight="480" MinWidth="760"
+        Icon="/Assets/app.ico" Title="FreePartition" Height="900" Width="1280" MinHeight="480" MinWidth="760"
         WindowStartupLocation="CenterScreen" Background="White" Loaded="Window_Loaded" Closing="Window_Closing">
 
     <Window.Resources>
@@ -48,6 +48,120 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Small rounded action button on the disk map ("Bring online"; "Take offline" sets a red Background) -->
+        <Style x:Key="MapActionButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource Accent}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="11"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.85" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.7" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Trash can on the right of a pending operation: gray, red on hover -->
+        <Style x:Key="TrashButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#7A7A7A" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="Transparent" CornerRadius="3" Width="24" Height="24">
+                            <TextBlock x:Name="Glyph" Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#FDE2E2" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="#C62828" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Round gray share icon; on hover it takes the network's color, kept in BorderBrush (see BuildShareButtons) -->
+        <Style x:Key="ShareButton" TargetType="Button">
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Margin" Value="3,0,0,0" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="#8A8A8A" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse Fill="{TemplateBinding Background}" />
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{Binding BorderBrush, RelativeSource={RelativeSource Self}}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Larger version for the toolbar -->
+        <Style x:Key="ToolbarShareButton" TargetType="Button" BasedOn="{StaticResource ShareButton}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="5,0,0,0" />
+        </Style>
+
+        <!-- "X" that closes a panel: gray, red on hover -->
+        <Style x:Key="CloseButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#7A7A7A" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="Transparent" CornerRadius="3" Width="22" Height="22">
+                            <TextBlock x:Name="Glyph" Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#FDE2E2" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="#C62828" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -252,6 +366,10 @@
         <!-- ===================== TOOLBAR ===================== -->
         <Border DockPanel.Dock="Top" Background="White" BorderBrush="{StaticResource Line}"
                 BorderThickness="0,1,0,1" Padding="6,4">
+            <DockPanel LastChildFill="True">
+            <!-- Share the app, right-aligned; filled from code (BuildShareButtons), hidden in WinPE -->
+            <StackPanel x:Name="ToolbarShareIcons" DockPanel.Dock="Right" Orientation="Horizontal"
+                        VerticalAlignment="Center" Margin="12,0,6,0" />
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="BtnUndo" Style="{StaticResource ToolbarButton}" ToolTip="Undo the last pending operation"
                         Click="BtnUndo_Click">
@@ -299,39 +417,58 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
+            </DockPanel>
         </Border>
 
         <!-- ===================== STATUS BAR ===================== -->
         <Border DockPanel.Dock="Bottom" Background="#F7F7F7" BorderBrush="{StaticResource Line}"
-                BorderThickness="0,1,0,0" Padding="8,4">
-            <DockPanel LastChildFill="True">
-                <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" Foreground="#777777" Margin="12,0,0,0" />
+                BorderThickness="0,1,0,0" Padding="8,6" MinHeight="34">
+            <!-- Status on the left, share icons in the middle of the bar, version on the right -->
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-                <!-- Busy indicator: a spinning arc, visible only while something is processing -->
-                <Ellipse x:Name="BusySpinner" DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0"
-                         Stroke="{StaticResource Accent}" StrokeThickness="2" StrokeDashArray="3 3"
-                         StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"
-                         VerticalAlignment="Center">
-                    <Ellipse.RenderTransform>
-                        <RotateTransform x:Name="BusyRotation" />
-                    </Ellipse.RenderTransform>
-                    <Ellipse.Triggers>
-                        <EventTrigger RoutedEvent="Loaded">
-                            <BeginStoryboard>
-                                <Storyboard>
-                                    <DoubleAnimation Storyboard.TargetName="BusyRotation"
-                                                     Storyboard.TargetProperty="Angle"
-                                                     From="0" To="360" Duration="0:0:1"
-                                                     RepeatBehavior="Forever" />
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Ellipse.Triggers>
-                </Ellipse>
+                <DockPanel Grid.Column="0" LastChildFill="True" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <!-- Busy indicator: a spinning arc, visible only while something is processing -->
+                    <Ellipse x:Name="BusySpinner" DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0"
+                             Stroke="{StaticResource Accent}" StrokeThickness="2" StrokeDashArray="3 3"
+                             StrokeDashCap="Round" RenderTransformOrigin="0.5,0.5" Visibility="Collapsed"
+                             VerticalAlignment="Center">
+                        <Ellipse.RenderTransform>
+                            <RotateTransform x:Name="BusyRotation" />
+                        </Ellipse.RenderTransform>
+                        <Ellipse.Triggers>
+                            <EventTrigger RoutedEvent="Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="BusyRotation"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         From="0" To="360" Duration="0:0:1"
+                                                         RepeatBehavior="Forever" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </Ellipse.Triggers>
+                    </Ellipse>
 
-                <TextBlock x:Name="TxtDiskStatus" Foreground="#444444" TextTrimming="CharacterEllipsis"
-                           Text="We recommend closing all other applications while disk operations are running." />
-            </DockPanel>
+                    <TextBlock x:Name="TxtDiskStatus" Foreground="#444444" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Text="We recommend closing all other applications while disk operations are running." />
+                </DockPanel>
+
+                <!-- Share the app (hidden in WinPE, which usually has no browser or network) -->
+                <StackPanel x:Name="SharePanel" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Share:" Foreground="#777777" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <!-- Filled from code (BuildShareButtons), same icons as the toolbar -->
+                    <StackPanel x:Name="FooterShareIcons" Orientation="Horizontal" />
+                </StackPanel>
+
+                <TextBlock x:Name="TxtVersion" Grid.Column="2" HorizontalAlignment="Right" Foreground="#777777"
+                           Margin="12,0,0,0" VerticalAlignment="Center" />
+            </Grid>
         </Border>
 
         <Grid>
@@ -415,18 +552,11 @@
                             </StackPanel>
                         </Button>
                         <TextBlock Text="SIZE AND POSITION" Style="{StaticResource GroupTitle}" />
-                        <Button x:Name="OpResize" Style="{StaticResource OperationItem}" Click="OpResize_Click"
-                                ToolTip="Extend or shrink the selected partition">
+                        <Button x:Name="OpResize" Style="{StaticResource OperationItem}" Click="OpResizeMove_Click"
+                                ToolTip="Extend, shrink or move the selected partition within the free space around it (a move loses data if interrupted)">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Icon}" Text="&#xE740;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Resize partition" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="OpMove" Style="{StaticResource OperationItem}" Click="OpMove_Click"
-                                ToolTip="Move the selected partition into free space on the same disk (data is lost if interrupted)">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Icon}" Text="&#xE8AB;" Foreground="{StaticResource Accent}" />
-                                <TextBlock Text="Move partition" />
+                                <TextBlock Text="Resize/Move partition" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="OpAlign" Style="{StaticResource OperationItem}" Click="OpAlign_Click"
@@ -583,17 +713,26 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <ListBox x:Name="PendingList" Grid.Row="3" BorderThickness="0" Margin="0,4,0,0" HorizontalContentAlignment="Stretch">
+                    <ListBox x:Name="PendingList" Grid.Row="3" BorderThickness="0" Margin="0,4,0,0" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="2,2">
-                                    <TextBlock TextWrapping="Wrap">
-                                        <Run Text="{Binding Order, Mode=OneWay}" />
-                                        <Run Text=". " />
-                                        <Run Text="{Binding Operation.Description, Mode=OneWay}" />
-                                    </TextBlock>
-                                    <TextBlock Text="{Binding Operation.RiskText, Mode=OneWay}" FontSize="11" Foreground="#B45309" />
-                                </StackPanel>
+                                <Grid Margin="2,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock TextWrapping="Wrap">
+                                            <Run Text="{Binding Order, Mode=OneWay}" />
+                                            <Run Text=". " />
+                                            <Run Text="{Binding Operation.Description, Mode=OneWay}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Operation.RiskText, Mode=OneWay}" FontSize="11" Foreground="#B45309" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Style="{StaticResource TrashButton}" Click="BtnRemovePending_Click"
+                                            ToolTip="Remove this operation from the queue" />
+                                </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -602,12 +741,19 @@
 
             <!-- ===================== CENTER AREA ===================== -->
             <Grid Grid.Column="1">
+                <!-- The log splitter only trades space between the top block (table + map) and the log,
+                     so the disk map keeps its height while the log is resized. -->
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="240" />
+                    <RowDefinition x:Name="LogSplitterRow" Height="0" />
+                    <RowDefinition x:Name="LogRow" Height="0" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" MinHeight="120" />
                     <RowDefinition Height="5" />
-                    <RowDefinition Height="210" MinHeight="110" />
-                    <RowDefinition x:Name="LogSplitterRow" Height="0" />
-                    <RowDefinition x:Name="LogRow" Height="0" />
+                    <RowDefinition Height="330" MinHeight="110" />
                 </Grid.RowDefinitions>
 
                 <DataGrid x:Name="DisksGrid" Grid.Row="0" AutoGenerateColumns="False" IsReadOnly="True"
@@ -663,19 +809,25 @@
                 <!-- Graphical disk map -->
                 <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                               Background="#F3F3F3">
-                    <StackPanel x:Name="DiskMap" Margin="8,8,8,4" />
+                    <StackPanel x:Name="DiskMap" Margin="10,10,10,6" />
                 </ScrollViewer>
+                </Grid>
 
                 <!-- Operations log (shown when applying or via the View menu).
                      Drag the bar above it to resize; Ctrl + mouse wheel changes the font size. -->
-                <GridSplitter x:Name="LogSplitter" Grid.Row="3" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                <GridSplitter x:Name="LogSplitter" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                               ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Background="#EFEFEF"
                               Visibility="Collapsed" />
-                <TextBox x:Name="TxtOperationsLog" Grid.Row="4" IsReadOnly="True" Visibility="Collapsed"
-                         VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
-                         BorderThickness="0,1,0,0" BorderBrush="{StaticResource Line}"
-                         ToolTip="Ctrl + mouse wheel: change the font size"
-                         PreviewMouseWheel="TxtOperationsLog_PreviewMouseWheel" />
+                <Grid x:Name="LogPanel" Grid.Row="2" Visibility="Collapsed">
+                    <TextBox x:Name="TxtOperationsLog" IsReadOnly="True"
+                             VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
+                             BorderThickness="0,1,0,0" BorderBrush="{StaticResource Line}" Padding="0,0,28,0"
+                             ToolTip="Ctrl + mouse wheel: change the font size"
+                             PreviewMouseWheel="TxtOperationsLog_PreviewMouseWheel" />
+                    <!-- Close button in the top-right corner, left of the scroll bar -->
+                    <Button Style="{StaticResource CloseButton}" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="0,4,20,0" ToolTip="Close the operations log" Click="BtnCloseLog_Click" />
+                </Grid>
             </Grid>
         </Grid>
     </DockPanel>

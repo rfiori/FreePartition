@@ -130,9 +130,12 @@ public sealed record PartitionTarget(int DiskNumber, int PartitionNumber, long O
 }
 
 /// <summary>Shrinks or extends a partition. Without a size, extends to the maximum possible.</summary>
-public sealed record ResizePartition(char Drive, long? NewSizeBytes = null) : DiskOperation
+/// <param name="WaitForDrive">Queued right after a move of the same partition: Windows takes a few seconds to mount
+/// the volume at its new position, so the script first waits (up to a minute) for the drive letter to come back.</param>
+public sealed record ResizePartition(char Drive, long? NewSizeBytes = null, bool WaitForDrive = false) : DiskOperation
 {
     private const long MinimumSize = 1L << 20;   // 1 MiB
+    private const int WaitSeconds = 60;
 
     public override string Description => NewSizeBytes is null
         ? $"Extend {char.ToUpperInvariant(Drive)}: to the maximum available"
@@ -152,9 +155,13 @@ public sealed record ResizePartition(char Drive, long? NewSizeBytes = null) : Di
     public override string GenerateScript()
     {
         char d = NormalizeLetter(Drive);
-        return NewSizeBytes is null
+        string wait = WaitForDrive
+            ? $"for ($i = 0; $i -lt {WaitSeconds} -and -not (Get-Partition -DriveLetter {d} -ErrorAction SilentlyContinue); $i++) " +
+              "{ Start-Sleep -Seconds 1; Update-HostStorageCache }; "
+            : "";
+        return wait + (NewSizeBytes is null
             ? $"$max = (Get-PartitionSupportedSize -DriveLetter {d}).SizeMax; Resize-Partition -DriveLetter {d} -Size $max"
-            : $"Resize-Partition -DriveLetter {d} -Size {NewSizeBytes.Value}";
+            : $"Resize-Partition -DriveLetter {d} -Size {NewSizeBytes.Value}");
     }
 }
 
@@ -406,6 +413,66 @@ public sealed record HidePartition(char Drive) : DiskOperation
         Validate();
         char d = NormalizeLetter(Drive);
         return $"Remove-PartitionAccessPath -DriveLetter {d} -AccessPath '{d}:\\'";
+    }
+}
+
+/// <summary>
+/// Brings an offline disk online, so Windows mounts its volumes again. When the disk went offline because its
+/// signature collided with another disk's, Windows gives it a new signature on the way.
+/// </summary>
+public sealed record SetDiskOnline(int DiskNumber) : DiskOperation
+{
+    public override string Description => $"Bring disk {DiskNumber} online";
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => false;
+    public override IReadOnlyList<char> AffectedDrives => [];
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"Set-Disk -Number {DiskNumber} -IsOffline $false";
+    }
+}
+
+/// <summary>
+/// Takes a disk offline: Windows unmounts its volumes and leaves the disk alone until it is brought online again.
+/// Refused on the disk that holds Windows, by the queue (through its drive letters) and by the script (IsSystem/IsBoot).
+/// </summary>
+/// <param name="Drives">Drive letters on the disk, so the queue can refuse the disk that holds the Windows drive.</param>
+public sealed record SetDiskOffline(int DiskNumber, IReadOnlyList<char>? Drives = null) : DiskOperation
+{
+    public override string Description => $"Take disk {DiskNumber} offline";
+
+    public override bool Destructive => false;
+    public override bool ForbiddenOnSystemDrive => true;
+    public override IReadOnlyList<char> AffectedDrives =>
+        (Drives ?? Array.Empty<char>()).Select(char.ToUpperInvariant).ToArray();
+
+    public override string? Warning =>
+        $"The volumes of disk {DiskNumber} disappear from Windows until the disk is brought online again. " +
+        "Close any program that has files open on them first, or unsaved work may be lost.";
+
+    public override void Validate()
+    {
+        if (DiskNumber < 0)
+            throw new ArgumentException("Invalid disk number.");
+        foreach (char drive in Drives ?? Array.Empty<char>())
+            NormalizeLetter(drive);
+    }
+
+    public override string GenerateScript()
+    {
+        Validate();
+        return $"$d = Get-Disk -Number {DiskNumber}; " +
+               $"if ($d.IsSystem -or $d.IsBoot) {{ throw 'Disk {DiskNumber} holds Windows and cannot be taken offline.' }}; " +
+               $"Set-Disk -Number {DiskNumber} -IsOffline $true";
     }
 }
 

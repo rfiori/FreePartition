@@ -23,10 +23,12 @@ public sealed record PartitionRow(
     int PartitionNumber = 0, bool Gpt = false, bool Uninitialized = false, ulong Offset = 0,
     IReadOnlyList<string>? Details = null, bool Reserved = false,
     ulong? VolumeSize = null,   // capacity of the volume when its usage is known (with or without a drive letter)
-    string? VolumePath = null);   // GUID path of a volume without a drive letter (what a scan opens it by)
+    string? VolumePath = null,   // GUID path of a volume without a drive letter (what a scan opens it by)
+    bool Unmounted = false);   // usage read straight from the disk: Windows has no volume to act on
 
 /// <summary>A disk with its rows, for the graphical map. <c>Map</c> also holds the reserved (MSR) stretches the list leaves out.</summary>
-public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map);
+public sealed record DiskVisual(int Index, string Style, ulong Size, IReadOnlyList<PartitionRow> Rows, IReadOnlyList<PartitionRow> Map,
+    bool Offline = false, bool IsSystem = false);   // IsSystem: holds the Windows drive or the boot partition
 
 /// <summary>Numbered row of the operation queue.</summary>
 public sealed record QueueItem(int Order, DiskOperation Operation);
@@ -40,19 +42,58 @@ public partial class MainWindow : Window
     private const string UnknownFileSystem = "Unknown";
 
     // Used-space bar of the disk map (the border adds 2 to this height).
-    private const double UsageBarHeight = 18;
-    private static readonly Brush UsageTrack = Freeze(new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6)));
-    private static readonly Brush UsageTrackBorder = Freeze(new SolidColorBrush(Color.FromRgb(0xBC, 0xBC, 0xBC)));
-    private static readonly Brush UsageText = Freeze(new SolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1B)));
-    private static readonly Brush UsageFill = Freeze(new LinearGradientBrush(
-        Color.FromRgb(0x8B, 0xC8, 0xF2), Color.FromRgb(0x4A, 0x9D, 0xDE), 90));
+    private const double UsageBarHeight = 15;
+    private const double MapBoxHeight = 51;
 
+    /// <summary>Text with a smooth white outline: the glyph outline is drawn as a vector (white stroke under black fill), so
+    /// it stays anti-aliased and readable on any background.</summary>
+    private static FrameworkElement OutlinedText(string text)
+    {
+        // Dark text with a soft white glow instead of a hard stroke: smooth edges, still readable on the light track and on the fill.
+        return new TextBlock
+        {
+            Text = text, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.Black, ShadowDepth = 2, BlurRadius = 1, Opacity = 1
+            }
+        };
+    }
+    private static readonly Brush OfflineText = Freeze(new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)));   // the red of REAL MODE
+    private static readonly Brush TakeOfflineBackground = Freeze(new SolidColorBrush(Color.FromRgb(0x8B, 0x1A, 0x1A)));   // dark red
+    private static readonly Brush UsageTrack = Freeze(Gradient(0xFA, 0xFA, 0xFA, 0xDC, 0xDC, 0xDC));
+    private static readonly Brush UsageTrackBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x9C, 0x9C, 0x9C)));
+
+    // Used-space fill by kind of area, like the legend under the map.
+    private static readonly Brush PrimaryFill = Freeze(Gradient(0x8C, 0x90, 0xE0, 0x3B, 0x3F, 0x9E));
+    private static readonly Brush OtherFill = Freeze(Gradient(0xA6, 0xE8, 0x84, 0x48, 0xA8, 0x36));
+    private static readonly Brush UnallocatedFill = Freeze(new LinearGradientBrush(
+        new GradientStopCollection
+        {
+            new(Color.FromRgb(0xF2, 0xF2, 0xF2), 0), new(Color.FromRgb(0xF2, 0xF2, 0xF2), 0.5),
+            new(Color.FromRgb(0xD0, 0xD0, 0xD0), 0.5), new(Color.FromRgb(0xD0, 0xD0, 0xD0), 1)
+        }, new Point(0, 0), new Point(5, 5))
+    {
+        MappingMode = BrushMappingMode.Absolute, SpreadMethod = GradientSpreadMethod.Repeat
+    });
+
+    // Frame of a disk: blue, or green for the disk of the selected partition.
+    private static readonly Brush DiskGroupBackground = Freeze(Gradient(0xF1, 0xF5, 0xFC, 0xCF, 0xDC, 0xF0));
+    private static readonly Brush DiskGroupBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x95, 0xAC, 0xD2)));
+    private static readonly Brush SelectedDiskBackground = Freeze(Gradient(0xEC, 0xF8, 0xE2, 0xB4, 0xE0, 0x92));
+    private static readonly Brush SelectedDiskBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x7B, 0xB6, 0x57)));
+
+    private static readonly Brush BoxBorder = Freeze(new SolidColorBrush(Color.FromRgb(0x8F, 0xA7, 0xCC)));
     private static readonly Brush NormalBox = Brushes.White;
-    private static readonly Brush SelectedBox = new SolidColorBrush(Color.FromRgb(0xFF, 0xF1, 0xB8));
+    private static readonly Brush SelectedBox = Freeze(new SolidColorBrush(Color.FromRgb(0xFF, 0xF3, 0xC4)));
+    private static readonly Brush SelectedBoxBorder = Freeze(new SolidColorBrush(Color.FromRgb(0xE0, 0xA8, 0x2E)));
 
     private readonly OperationQueue _queue;
     private readonly char? _systemLetter;
     private readonly Dictionary<PartitionRow, Border> _boxes = new();
+    private readonly Dictionary<int, Border> _diskGroups = new();
     private CancellationTokenSource? _operationsCts;
     private IReadOnlyList<DiskInfo> _disks = [];
     private readonly bool _isWinPe;
@@ -82,6 +123,7 @@ public partial class MainWindow : Window
         TxtVersion.Text = $"v{version}";
         _currentVersion = version;
         MenuUpdateOnStartup.IsChecked = _updateSettings.CheckOnStartup;
+        BuildShareButtons();
     }
 
     private int _busyCount;
@@ -257,7 +299,8 @@ public partial class MainWindow : Window
                     type, letter, volume.Label, partition.Size, used, false, disk.Index, partition.Number, gpt,
                     Offset: partition.Offset, Details: partition.Details,
                     VolumeSize: letter is not null || volume.FileSystem is not null ? volume.Size : null,
-                    VolumePath: letter is null ? volume.VolumePath : null));
+                    VolumePath: letter is null ? volume.VolumePath : null,
+                    Unmounted: volume.Unmounted));
             }
 
             cursor = Math.Max(cursor, partition.Offset + partition.Size);
@@ -267,7 +310,9 @@ public partial class MainWindow : Window
             AddFree(cursor, disk.Size, disk.PartitionStyle == "Uninitialized");
 
         var map = rows.Concat(reserved).OrderBy(r => r.Offset).ToList();
-        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map);
+        // The disk Windows runs or boots from: it is never offered to be taken offline.
+        bool isSystem = rows.Any(r => (r.Letter is { } l && l == _systemLetter) || r.Details?.Contains("Boot") == true);
+        return new DiskVisual(disk.Index, disk.PartitionStyle, disk.Size, rows, map, disk.IsOffline, isSystem);
     }
 
     /// <summary>The hidden MSR stretch: drawn on the map only, so no operation can pick it.</summary>
@@ -304,24 +349,34 @@ public partial class MainWindow : Window
     {
         DiskMap.Children.Clear();
         _boxes.Clear();
+        _diskGroups.Clear();
 
         foreach (var disk in disks)
         {
-            var line = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            var line = new Grid();
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var label = new StackPanel { Margin = new Thickness(2, 4, 8, 4) };
+            // Disk name, style and size straight on the frame, like Disk Management.
+            var label = new StackPanel { Margin = new Thickness(4, 2, 6, 2) };
             var header = new StackPanel { Orientation = Orientation.Horizontal };
             header.Children.Add(new TextBlock
             {
-                Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 20,
+                Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 15,
                 Foreground = (Brush)FindResource("Accent"), VerticalAlignment = VerticalAlignment.Center
             });
-            header.Children.Add(new TextBlock { Text = $"Disk{disk.Index}", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock
+            {
+                Text = $"Disk {disk.Index}", FontWeight = FontWeights.Bold, Margin = new Thickness(5, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
             label.Children.Add(header);
-            label.Children.Add(new TextBlock { Text = $"Basic {disk.Style}", FontSize = 11, Foreground = Brushes.DimGray });
-            label.Children.Add(new TextBlock { Text = ByteFormatter.Format(disk.Size), FontSize = 11, Foreground = Brushes.DimGray });
+            label.Children.Add(new TextBlock { Text = $"Basic {disk.Style}", FontSize = 11 });
+            label.Children.Add(new TextBlock { Text = ByteFormatter.Format(disk.Size), FontSize = 11 });
+            if (disk.Offline)
+                label.Children.Add(OfflineBadge(disk.Index));
+            else if (!disk.IsSystem)
+                label.Children.Add(TakeOfflineButton(disk));
             Grid.SetColumn(label, 0);
             line.Children.Add(label);
 
@@ -332,8 +387,8 @@ public partial class MainWindow : Window
             {
                 boxes.ColumnDefinitions.Add(new ColumnDefinition
                 {
-                    Width = new GridLength(Math.Max((double)part.Size, total * 0.07), GridUnitType.Star),
-                    MinWidth = 56
+                    Width = new GridLength(Math.Max((double)part.Size, total * 0.06), GridUnitType.Star),
+                    MinWidth = 48
                 });
                 var box = CreateBox(part);
                 Grid.SetColumn(box, column++);
@@ -343,8 +398,103 @@ public partial class MainWindow : Window
             Grid.SetColumn(boxes, 1);
             line.Children.Add(boxes);
 
-            DiskMap.Children.Add(line);
+            // One frame around the whole disk: its label and all its partitions.
+            var group = new Border
+            {
+                Background = DiskGroupBackground, BorderBrush = DiskGroupBorder, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(3, 3, 0, 3), Margin = new Thickness(0, 0, 0, 6), Child = line
+            };
+            _diskGroups[disk.Index] = group;
+            DiskMap.Children.Add(group);
         }
+
+        DiskMap.Children.Add(BuildLegend());
+        HighlightSelection();
+    }
+
+    private static LinearGradientBrush Gradient(byte r1, byte g1, byte b1, byte r2, byte g2, byte b2) =>
+        new(Color.FromRgb(r1, g1, b1), Color.FromRgb(r2, g2, b2), 90);
+
+    /// <summary>"Primary / Other / Unallocated" key for the used-space colors of the map.</summary>
+    private static StackPanel BuildLegend()
+    {
+        var legend = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 2, 0, 4) };
+        foreach (var (text, brush) in new[]
+                 {
+                     ("Primary", PrimaryFill), ("EFI / Other", OtherFill), ("Unallocated", UnallocatedFill)
+                 })
+        {
+            legend.Children.Add(new Border
+            {
+                Width = 14, Height = 12, Background = brush, BorderBrush = UsageTrackBorder, BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            legend.Children.Add(new TextBlock
+            {
+                Text = text, FontSize = 11, Foreground = Brushes.DimGray, Margin = new Thickness(4, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+        }
+        return legend;
+    }
+
+    /// <summary>"Offline" in bold under the disk size, with a button that queues bringing the disk online.</summary>
+    private StackPanel OfflineBadge(int diskIndex)
+    {
+        var badge = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+        badge.Children.Add(new TextBlock
+        {
+            Text = "Offline", FontSize = 11, FontWeight = FontWeights.Bold, Foreground = OfflineText
+        });
+        badge.Children.Add(DiskStateButton("Bring online", null,
+            $"Queue \"Bring disk {diskIndex} online\" (click Apply to run it). Windows then mounts its volumes again.",
+            () => _queue.Pending.OfType<SetDiskOnline>().Any(o => o.DiskNumber == diskIndex),
+            () => new SetDiskOnline(diskIndex)));
+        return badge;
+    }
+
+    /// <summary>
+    /// Dark red "Take offline" button under the disk size. Not offered for the disk that holds Windows; the queue
+    /// and the script refuse that disk too.
+    /// </summary>
+    private Button TakeOfflineButton(DiskVisual disk)
+    {
+        var drives = disk.Rows.Select(r => r.Letter).OfType<char>().Distinct().ToArray();
+        return DiskStateButton("Take offline", TakeOfflineBackground,
+            $"Queue \"Take disk {disk.Index} offline\" (click Apply to run it). Windows unmounts its volumes until it is brought online again.",
+            () => _queue.Pending.OfType<SetDiskOffline>().Any(o => o.DiskNumber == disk.Index),
+            () => new SetDiskOffline(disk.Index, drives));
+    }
+
+    /// <summary>Rounded power button of the disk map that queues an operation (once) on the disk.</summary>
+    private Button DiskStateButton(string text, Brush? background, string tooltip, Func<bool> alreadyQueued, Func<DiskOperation> create)
+    {
+        var caption = new StackPanel { Orientation = Orientation.Horizontal };
+        caption.Children.Add(new TextBlock
+        {
+            Text = "\uE7E8", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0)
+        });
+        caption.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
+        var button = new Button
+        {
+            Content = caption, Style = (Style)FindResource("MapActionButton"), Margin = new Thickness(0, 5, 0, 2),
+            HorizontalAlignment = HorizontalAlignment.Center, ToolTip = tooltip
+        };
+        if (background is not null) button.Background = background;
+        button.Click += (_, _) =>
+        {
+            if (alreadyQueued()) return;
+            try
+            {
+                _queue.Add(create());
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
+        return button;
     }
 
     private static Brush Freeze(Brush brush)
@@ -356,55 +506,54 @@ public partial class MainWindow : Window
     private Border CreateBox(PartitionRow part)
     {
         bool empty = part.Unallocated || part.Reserved;
-        var borderBrush = empty ? Brushes.Silver : new SolidColorBrush(Color.FromRgb(0x5B, 0x9B, 0xD5));
+        string? usageTip = null;
         var content = new StackPanel { Margin = new Thickness(3) };
 
+        // Used-space bar on top: colored by kind of partition, hatched for space that holds nothing.
+        var bar = new Grid();
         if (!empty)
         {
-            // Used space as a rounded bar with the percentage inside. Without a readable volume there is
-            // no usage to show, so the bar stays empty instead of claiming 0%.
+            // Without a readable volume there is no usage to show, so the bar stays empty instead of claiming 0%.
             bool hasUsage = part.VolumeSize is not null;
-            double fraction = !hasUsage || part.Size == 0 ? 0 : Math.Clamp((double)part.UsedBytes / part.Size, 0, 1);
-            var bar = new Grid();
+            // Same base as the Used column: the volume's capacity, not the partition's size.
+            ulong capacity = part.VolumeSize ?? part.Size;
+            double fraction = !hasUsage || capacity == 0 ? 0 : Math.Clamp((double)part.UsedBytes / capacity, 0, 1);
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(fraction, 0.0001), GridUnitType.Star) });
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(1 - fraction, 0.0001), GridUnitType.Star) });
             if (fraction > 0)
-            {
-                var filled = new Border
-                {
-                    Background = UsageFill,
-                    CornerRadius = fraction >= 0.999 ? new CornerRadius(3) : new CornerRadius(3, 0, 0, 3)
-                };
-                Grid.SetColumn(filled, 0);
-                bar.Children.Add(filled);
-            }
+                bar.Children.Add(new Border { Background = part.Type == "Primary" ? PrimaryFill : OtherFill });
             if (hasUsage)
             {
-                var percent = new TextBlock
-                {
-                    Text = fraction.ToString("P0", CultureInfo.CurrentCulture), FontSize = 11, Foreground = UsageText,
-                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
-                };
-                Grid.SetColumnSpan(percent, 2);
-                bar.Children.Add(percent);
+                string percent = fraction.ToString("P0", CultureInfo.CurrentCulture);
+                usageTip = $"Used: {ByteFormatter.Format(part.UsedBytes)} ({percent})";
+                // Percentage in the middle of the bar: dark with a white outline, readable on the light track and on the fill.
+                var label = OutlinedText(percent);
+                Grid.SetColumnSpan(label, 2);
+                bar.Children.Add(label);
             }
-            content.Children.Add(new Border
-            {
-                Height = UsageBarHeight, CornerRadius = new CornerRadius(4), Background = UsageTrack, BorderBrush = UsageTrackBorder,
-                BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 3), Child = bar
-            });
         }
-        else
+        content.Children.Add(new Border
         {
-            content.Children.Add(new Border { Height = UsageBarHeight + 3 });   // keeps the text lines level with the other boxes
-        }
+            Height = UsageBarHeight, CornerRadius = new CornerRadius(2), Background = empty ? UnallocatedFill : UsageTrack,
+            BorderBrush = UsageTrackBorder, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 0, 3), Child = bar
+        });
 
-        string title = part.Reserved ? "Reserved (MSR)" : part.Unallocated ? "Unallocated"
-            : string.IsNullOrEmpty(part.FileSystem) ? part.Name : $"{part.Name} ({part.FileSystem})";
-        content.Children.Add(new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12 });
-        content.Children.Add(new TextBlock { Text = part.Capacity, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, Foreground = Brushes.DimGray });
+        // "C: System" in bold, then "200,08 GB NTFS".
+        string title = part.Reserved ? "Reserved (MSR)" : part.Unallocated ? "*" : part.Name;
+        string detail = part.Unallocated ? $"{part.Capacity} Unallocated"
+            : string.IsNullOrEmpty(part.FileSystem) ? part.Capacity : $"{part.Capacity} {part.FileSystem}";
+        content.Children.Add(new TextBlock
+        {
+            Text = title, FontWeight = FontWeights.Bold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 2, 0)
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = detail, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(2, 0, 2, 0)
+        });
+        title = part.Unallocated ? "Unallocated" : string.IsNullOrEmpty(part.FileSystem) ? title : $"{title} ({part.FileSystem})";
+        title += $"\n{part.Capacity}";
 
-        string tooltip = title;
+        string tooltip = usageTip is null ? title : $"{title}\n{usageTip}";
         if (!empty && part.PartitionNumber > 0
             && PartitionAlignment.Classify(part.Offset) == AlignmentStatus.Misaligned)
         {
@@ -412,13 +561,14 @@ public partial class MainWindow : Window
             {
                 Text = "⚠ Not aligned", TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 11, Foreground = Brushes.DarkOrange
             });
-            tooltip = $"{title}\n{PartitionAlignment.Describe(AlignmentStatus.Misaligned)}";
+            tooltip += $"\n{PartitionAlignment.Describe(AlignmentStatus.Misaligned)}";
         }
 
         var box = new Border
         {
-            Background = NormalBox, BorderBrush = borderBrush, BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 3, 0), Child = content, ToolTip = tooltip
+            Background = NormalBox, BorderBrush = BoxBorder, BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 3, 0), Child = content, ToolTip = tooltip,
+            MinHeight = MapBoxHeight, CornerRadius = new CornerRadius(3)
         };
         if (part.Reserved)
         {
@@ -438,10 +588,28 @@ public partial class MainWindow : Window
 
     private void DisksGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        foreach (var (row, box) in _boxes)
-            box.Background = ReferenceEquals(row, DisksGrid.SelectedItem) ? SelectedBox : NormalBox;
-
+        HighlightSelection();
         RefreshAvailableOperations();
+    }
+
+    /// <summary>Marks the selected partition's box and the frame of its disk on the map.</summary>
+    private void HighlightSelection()
+    {
+        foreach (var (row, box) in _boxes)
+        {
+            bool selected = ReferenceEquals(row, DisksGrid.SelectedItem);
+            box.Background = selected ? SelectedBox : NormalBox;
+            box.BorderBrush = selected ? SelectedBoxBorder : BoxBorder;
+        }
+
+        // The disk that holds the selected partition turns green, like the reference layout.
+        int? selectedDisk = (DisksGrid.SelectedItem as PartitionRow)?.DiskIndex;
+        foreach (var (index, group) in _diskGroups)
+        {
+            bool selected = index == selectedDisk;
+            group.Background = selected ? SelectedDiskBackground : DiskGroupBackground;
+            group.BorderBrush = selected ? SelectedDiskBorder : DiskGroupBorder;
+        }
     }
 
     // ------------------------------------------------------------------ Context menu
@@ -519,12 +687,11 @@ public partial class MainWindow : Window
         // Format and Delete also work on a partition without a letter (addressed by disk and number); Label and
         // Check need a volume Windows can read there.
         bool hasPartition = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0 };
-        bool hasVolume = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0, VolumeSize: not null };
+        bool hasVolume = hasLetter || Selected is { Unallocated: false, PartitionNumber: > 0, VolumeSize: not null, Unmounted: false };
         OpResize.IsEnabled = hasLetter;
         OpMerge.IsEnabled = hasLetter && PreviousNeighbor() is not null;
         OpSplit.IsEnabled = hasLetter;
         OpClone.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot be cloned
-        OpMove.IsEnabled = Selected is { Unallocated: false };   // always clickable: it explains why a partition cannot move
         OpAlign.IsEnabled = Selected is { Unallocated: false, PartitionNumber: > 0 } aligned
                             && PartitionAlignment.Classify(aligned.Offset) == AlignmentStatus.Misaligned;
         OpLabel.IsEnabled = hasVolume;
@@ -551,8 +718,14 @@ public partial class MainWindow : Window
         OpClusterMap.IsEnabled = hasLetter;
     }
 
-    private async void OpResize_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Resize/Move partition: one dialog that shrinks, extends and moves the partition. Windows only resizes a
+    /// partition at its end and the move keeps the size, so a change of both is queued as two operations, in the
+    /// order that copies less and always has room: shrink then move, or move then extend.
+    /// </summary>
+    private async void OpResizeMove_Click(object sender, RoutedEventArgs e)
     {
+        const string title = "Resize/Move partition";
         if (Selected is not { Unallocated: false, Letter: { } letter } row) return;
 
         // Room to extend = unallocated space right after the partition on the same disk.
@@ -577,17 +750,96 @@ public partial class MainWindow : Window
             SetBusy(false);
         }
 
-        var dialog = new ResizeDialog(letter, row.Size, min, max, row.UsedBytes) { Owner = this };
-        if (dialog.ShowDialog() != true) return;
+        long start = (long)row.Offset, size = (long)row.Size;
+        long regionStart = start, regionEnd = start + (long)max;
 
+        // A partition that may move slides within the free space around it, inside the disk's usable area.
+        string? moveBlocked = MoveBlockedReason(row);
+        if (moveBlocked is null)
+        {
+            var (layout, error) = await LoadLayoutAsync(row.DiskIndex);
+            if (layout is null)
+            {
+                moveBlocked = $"{error} It can still be resized at its end.";
+            }
+            else
+            {
+                var home = FreeRegionAround(row);
+                regionStart = Math.Max(home.Start, layout.UsableStart);
+                regionEnd = Math.Max(Math.Min(home.End, layout.UsableEnd), start + size);
+            }
+        }
+        else
+        {
+            moveBlocked += " It can still be resized at its end.";
+        }
+
+        var dialog = new ResizeMoveDialog(letter, start, size, regionStart, regionEnd, (long)min, (long)row.UsedBytes, moveBlocked)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() != true) return;
+        if (dialog.Moved && !ConfirmMoveBootRoles(row, letter)) return;
+
+        long newStart = dialog.NewStart, newSize = dialog.NewSize;
+        var operations = new List<DiskOperation>();
+        if (!dialog.Moved)
+        {
+            operations.Add(new ResizePartition(letter, dialog.ExtendsToMaximum ? null : newSize));
+        }
+        else if (newSize <= size)
+        {
+            // Shrink first (Windows moves the files out of the end), then move the smaller partition.
+            if (newSize < size) operations.Add(new ResizePartition(letter, newSize));
+            operations.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, start, newSize, newStart));
+        }
+        else
+        {
+            // Move first, then grow into the free space left behind; the extend waits for Windows to remount the drive.
+            operations.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, start, size, newStart));
+            operations.Add(new ResizePartition(letter, newSize, WaitForDrive: true));
+        }
+
+        // All or nothing: a half-queued change would leave the partition somewhere the user did not ask for.
+        var added = new List<DiskOperation>();
         try
         {
-            _queue.Add(new ResizePartition(letter, dialog.NewSizeBytes));
+            foreach (var operation in operations)
+            {
+                _queue.Add(operation);
+                added.Add(operation);
+            }
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
-            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+            foreach (var operation in added) _queue.Remove(operation);
+            MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>
+    /// The free space around a partition, counting its own space as free (it is vacated while it moves). Two free
+    /// rows only merge when nothing sits between them.
+    /// </summary>
+    private (long Start, long End) FreeRegionAround(PartitionRow row)
+    {
+        var regions = new List<(long Start, long End)>();
+        bool previousFree = false;
+        foreach (var r in DisksGrid.Items.OfType<PartitionRow>()
+                     .Where(r => r.DiskIndex == row.DiskIndex && !r.Uninitialized).OrderBy(r => r.Offset))
+        {
+            if (!r.Unallocated && !ReferenceEquals(r, row))
+            {
+                previousFree = false;
+                continue;
+            }
+            long start = (long)r.Offset, end = (long)(r.Offset + r.Size);
+            if (previousFree) regions[^1] = (regions[^1].Start, end);
+            else regions.Add((start, end));
+            previousFree = true;
+        }
+        long current = (long)row.Offset;
+        return regions.FirstOrDefault(r => r.Start <= current && current < r.End);
     }
 
     /// <summary>The partition right before the selected one on the same disk, if it has a drive letter.</summary>
@@ -686,68 +938,81 @@ public partial class MainWindow : Window
     private void ShowMoveRefused(string reason) =>
         MessageBox.Show(this, reason, "Move partition", MessageBoxButton.OK, MessageBoxImage.Information);
 
+    /// <summary>Why a partition can never be moved (no letter, the Windows drive...), or null when it may move.</summary>
+    private string? MoveBlockedReason(PartitionRow row)
+    {
+        if (row.Letter is not { } letter)
+            return "This partition has no drive letter, so it cannot be moved. Use \"Show partition\" to give it a letter first.";
+        if (letter == _systemLetter)
+            return $"{letter}: is the Windows drive. Moving it could make Windows impossible to start, so it is not allowed.";
+        if (row.PartitionNumber < 1)
+            return $"Windows does not expose {letter}: as a partition that can be moved.";
+        return null;
+    }
+
+    /// <summary>
+    /// Boot/active partitions (another Windows install, a boot manager) read their own position from the boot
+    /// sector, which a move does not rewrite: moving them can leave that system unable to start. Asks first.
+    /// </summary>
+    private bool ConfirmMoveBootRoles(PartitionRow row, char letter)
+    {
+        var bootRoles = row.Details?.Where(d => d is "Boot" or "Active" or "Page File" or "Crash Dump").ToList();
+        if (bootRoles is not { Count: > 0 }) return true;
+
+        var answer = MessageBox.Show(this,
+            $"{letter}: is marked as {string.Join(", ", bootRoles)}.\n\n" +
+            "This partition is used to start or run Windows. Moving it does not update its boot sector, so the " +
+            "system that boots from it may fail to start, and a drive in use cannot be locked anyway.\n\n" +
+            "Only continue if you are sure this is just a data partition. Move it anyway?",
+            "Move partition", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        return answer == MessageBoxResult.Yes;
+    }
+
     /// <summary>
     /// Explains up front why a partition cannot be moved, instead of failing later while applying.
     /// Returns its drive letter when the move may go ahead.
     /// </summary>
     private char? CheckCanMove(PartitionRow row)
     {
-        if (row.Letter is not { } letter)
+        if (MoveBlockedReason(row) is { } reason)
         {
-            ShowMoveRefused("This partition has no drive letter, so it cannot be moved. " +
-                            "Use \"Show partition\" to give it a letter first.");
+            ShowMoveRefused(reason);
             return null;
         }
-        if (letter == _systemLetter)
-        {
-            ShowMoveRefused($"{letter}: is the Windows drive. Moving it could make Windows impossible to start, so it is not allowed.");
-            return null;
-        }
-        if (row.PartitionNumber < 1)
-        {
-            ShowMoveRefused($"Windows does not expose {letter}: as a partition that can be moved.");
-            return null;
-        }
-
-        // Boot/active partitions (another Windows install, a boot manager) read their own position from the boot
-        // sector, which a move does not rewrite: moving them can leave that system unable to start.
-        var bootRoles = row.Details?.Where(d => d is "Boot" or "Active" or "Page File" or "Crash Dump").ToList();
-        if (bootRoles is { Count: > 0 })
-        {
-            var answer = MessageBox.Show(this,
-                $"{letter}: is marked as {string.Join(", ", bootRoles)}.\n\n" +
-                "This partition is used to start or run Windows. Moving it does not update its boot sector, so the " +
-                "system that boots from it may fail to start, and a drive in use cannot be locked anyway.\n\n" +
-                "Only continue if you are sure this is just a data partition. Move it anyway?",
-                "Move partition", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
-            if (answer != MessageBoxResult.Yes) return null;
-        }
-        return letter;
+        char letter = row.Letter!.Value;
+        return ConfirmMoveBootRoles(row, letter) ? letter : null;
     }
 
-    /// <summary>Reads the partition table (read-only), or explains why the disk cannot be rearranged.</summary>
-    private async Task<DriveLayout?> LoadLayoutForMoveAsync(int diskIndex)
+    /// <summary>Reads the partition table (read-only); on failure, says why the disk cannot be rearranged.</summary>
+    private async Task<(DriveLayout? Layout, string? Error)> LoadLayoutAsync(int diskIndex)
     {
         Cursor = Cursors.Wait;
         SetBusy(true);
         try
         {
-            return await Task.Run(() => PhysicalDiskMover.LoadLayout(diskIndex));
+            return (await Task.Run(() => PhysicalDiskMover.LoadLayout(diskIndex)), null);
         }
         catch (InvalidDataException ex)
         {
-            ShowMoveRefused($"Disk {diskIndex} cannot be rearranged: {ex.Message}");
+            return (null, $"Disk {diskIndex} cannot be rearranged: {ex.Message}");
         }
         catch (Exception ex)
         {
-            ShowMoveRefused($"Could not read the partition table of disk {diskIndex}: {ex.Message}");
+            return (null, $"Could not read the partition table of disk {diskIndex}: {ex.Message}");
         }
         finally
         {
             Cursor = null;
             SetBusy(false);
         }
-        return null;
+    }
+
+    /// <summary>Reads the partition table (read-only), or explains why the disk cannot be rearranged.</summary>
+    private async Task<DriveLayout?> LoadLayoutForMoveAsync(int diskIndex)
+    {
+        var (layout, error) = await LoadLayoutAsync(diskIndex);
+        if (error is not null) ShowMoveRefused(error);
+        return layout;
     }
 
     private async void OpAlign_Click(object sender, RoutedEventArgs e)
@@ -784,54 +1049,6 @@ public partial class MainWindow : Window
         try
         {
             _queue.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, current, length, target));
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-        {
-            MessageBox.Show(this, ex.Message, "Invalid operation", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    private async void OpMove_Click(object sender, RoutedEventArgs e)
-    {
-        if (Selected is not { Unallocated: false } row || CheckCanMove(row) is not { } letter) return;
-        if (await LoadLayoutForMoveAsync(row.DiskIndex) is null) return;
-
-        const long mib = 1L << 20;
-        long length = (long)row.Size, current = (long)row.Offset;
-
-        // Free regions of this disk, counting the partition's own space as free (it is vacated while it moves).
-        // Two free rows only merge when nothing sits between them.
-        var regions = new List<(long Start, long End)>();
-        bool previousFree = false;
-        foreach (var r in DisksGrid.Items.OfType<PartitionRow>()
-                     .Where(r => r.DiskIndex == row.DiskIndex && !r.Uninitialized).OrderBy(r => r.Offset))
-        {
-            if (!r.Unallocated && !ReferenceEquals(r, row))
-            {
-                previousFree = false;
-                continue;
-            }
-            long start = (long)r.Offset, end = (long)(r.Offset + r.Size);
-            if (previousFree) regions[^1] = (regions[^1].Start, end);
-            else regions.Add((start, end));
-            previousFree = true;
-        }
-
-        // The partition can slide within the free space around it (the unallocated stretches touching it).
-        var home = regions.FirstOrDefault(r => r.Start <= current && current < r.End);
-        if (home.End - home.Start - length < mib)
-        {
-            MessageBox.Show(this, $"There is no free space next to {letter}: on disk {row.DiskIndex} to move it into.",
-                "Move partition", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var dialog = new MoveDialog(letter, row.Size, row.UsedBytes, home.Start, home.End, current) { Owner = this };
-        if (dialog.ShowDialog() != true) return;
-
-        try
-        {
-            _queue.Add(new MovePartition(row.DiskIndex, row.PartitionNumber, letter, current, length, dialog.NewOffsetBytes));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
@@ -1064,7 +1281,7 @@ public partial class MainWindow : Window
 
     private void OpCreate_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { Unallocated: true, Uninitialized: false } free) return;
+        if (Selected is not { Unallocated: true, Uninitialized: false } free || RefuseOffline(free.DiskIndex, "Create partition")) return;
 
         var dialog = new ParametersDialog("Create partition",
             $"Disk {free.DiskIndex} — free space: {free.Capacity}",
@@ -1246,7 +1463,7 @@ public partial class MainWindow : Window
 
     private void OpShow_Click(object sender, RoutedEventArgs e)
     {
-        if (Selected is not { Unallocated: false, Letter: null, PartitionNumber: > 0 } row) return;
+        if (Selected is not { Unallocated: false, Letter: null, PartitionNumber: > 0 } row || RefuseOffline(row.DiskIndex, "Show partition")) return;
 
         var dialog = new ParametersDialog("Show partition",
             $"Disk {row.DiskIndex}, partition {row.PartitionNumber} — {row.Capacity}",
@@ -1271,6 +1488,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Windows refuses to change an offline disk (Add-PartitionAccessPath, Format-Volume… fail with "Not Supported"),
+    /// so explain it before queueing an operation that would only fail when applied. True when it was refused.
+    /// </summary>
+    private bool RefuseOffline(int diskIndex, string title)
+    {
+        if (_disks.FirstOrDefault(d => d.Index == diskIndex) is not { IsOffline: true }) return false;
+        MessageBox.Show(this,
+            $"Disk {diskIndex} is offline, so Windows does not allow changes to it.\n\n" +
+            "Bring it online first (Disk Management: right-click the disk → Online, or in PowerShell as administrator: " +
+            $"Set-Disk -Number {diskIndex} -IsOffline $false), then click Refresh.",
+            title, MessageBoxButton.OK, MessageBoxImage.Information);
+        return true;
+    }
+
+    /// <summary>
     /// Why a partition without a drive letter must not be erased, or null when it may be. The letter-based checks
     /// (Windows drive) cannot see these, so the Status roles of the row are used; the generated script also refuses
     /// a partition that is boot or system.
@@ -1291,7 +1523,7 @@ public partial class MainWindow : Window
         Func<char, PartitionTarget?, string[], DiskOperation> create, string? warning = null,
         bool needsVolume = false, bool erases = false)
     {
-        if (Selected is not { Unallocated: false } row) return;
+        if (Selected is not { Unallocated: false } row || RefuseOffline(row.DiskIndex, title)) return;
 
         PartitionTarget? target = null;
         string subject;
@@ -1302,6 +1534,12 @@ public partial class MainWindow : Window
         else
         {
             if (row.PartitionNumber < 1) return;
+            if (needsVolume && row.Unmounted)
+            {
+                MessageBox.Show(this, "Windows has not mounted this partition (the disk is offline or automount is off), so this does not apply to it.",
+                    title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
             if (needsVolume && row.VolumeSize is null)
             {
                 MessageBox.Show(this, "Windows cannot read a file system on this partition, so this does not apply to it.",
@@ -1403,6 +1641,24 @@ public partial class MainWindow : Window
         var pending = _queue.Pending;
         if (pending.Count > 0)
             _queue.Remove(pending[^1]);
+    }
+
+    /// <summary>Trash can of a pending operation: removes only that one from the queue.</summary>
+    private void BtnRemovePending_Click(object sender, RoutedEventArgs e)
+    {
+        if (_operationsRunning || (sender as FrameworkElement)?.DataContext is not QueueItem item) return;
+
+        // Later operations may have been planned on top of this one (e.g. formatting a partition it creates).
+        var pending = _queue.Pending;
+        if (!ReferenceEquals(item.Operation, pending[^1]))
+        {
+            var answer = MessageBox.Show(this,
+                $"Remove \"{item.Operation.Description}\" from the queue?\n\n"
+                + "Operations queued after it may depend on it and fail when applied.",
+                "Remove operation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+        }
+        _queue.Remove(item.Operation);
     }
 
     private void BtnClearQueue_Click(object sender, RoutedEventArgs e) => _queue.Clear();
@@ -1594,13 +1850,16 @@ public partial class MainWindow : Window
     private void MenuShowLog_Changed(object sender, RoutedEventArgs e)
     {
         bool show = MenuShowLog.IsChecked;
-        TxtOperationsLog.Visibility = LogSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        LogPanel.Visibility = LogSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
         // The log lives in its own row (resizable with the splitter); collapse the rows when it is hidden.
         LogSplitterRow.Height = new GridLength(show ? 5 : 0);
         LogRow.MinHeight = show ? 40 : 0;
         LogRow.Height = new GridLength(show ? 130 : 0);
     }
+
+    /// <summary>The "X" of the log panel: same as unchecking View > Show operations log.</summary>
+    private void BtnCloseLog_Click(object sender, RoutedEventArgs e) => MenuShowLog.IsChecked = false;
 
     /// <summary>Ctrl + mouse wheel zooms the log text (8 to 24 pt).</summary>
     private void TxtOperationsLog_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
