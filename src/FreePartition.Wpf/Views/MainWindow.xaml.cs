@@ -1541,6 +1541,24 @@ public partial class MainWindow : Window
             _queue.Remove(pending[^1]);
     }
 
+    /// <summary>Trash can of a pending operation: removes only that one from the queue.</summary>
+    private void BtnRemovePending_Click(object sender, RoutedEventArgs e)
+    {
+        if (_operationsRunning || (sender as FrameworkElement)?.DataContext is not QueueItem item) return;
+
+        // Later operations may have been planned on top of this one (e.g. formatting a partition it creates).
+        var pending = _queue.Pending;
+        if (!ReferenceEquals(item.Operation, pending[^1]))
+        {
+            var answer = MessageBox.Show(this,
+                $"Remove \"{item.Operation.Description}\" from the queue?\n\n"
+                + "Operations queued after it may depend on it and fail when applied.",
+                "Remove operation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+        }
+        _queue.Remove(item.Operation);
+    }
+
     private void BtnClearQueue_Click(object sender, RoutedEventArgs e) => _queue.Clear();
 
     private void BtnCancelOperations_Click(object sender, RoutedEventArgs e) => _operationsCts?.Cancel();
@@ -1730,13 +1748,16 @@ public partial class MainWindow : Window
     private void MenuShowLog_Changed(object sender, RoutedEventArgs e)
     {
         bool show = MenuShowLog.IsChecked;
-        TxtOperationsLog.Visibility = LogSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        LogPanel.Visibility = LogSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
         // The log lives in its own row (resizable with the splitter); collapse the rows when it is hidden.
         LogSplitterRow.Height = new GridLength(show ? 5 : 0);
         LogRow.MinHeight = show ? 40 : 0;
         LogRow.Height = new GridLength(show ? 130 : 0);
     }
+
+    /// <summary>The "X" of the log panel: same as unchecking View > Show operations log.</summary>
+    private void BtnCloseLog_Click(object sender, RoutedEventArgs e) => MenuShowLog.IsChecked = false;
 
     /// <summary>Ctrl + mouse wheel zooms the log text (8 to 24 pt).</summary>
     private void TxtOperationsLog_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
